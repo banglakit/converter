@@ -1,4 +1,34 @@
 /**
+ * Single onOpen handler that detects the active editor and adds the menu.
+ */
+function onOpen() {
+  var ui;
+  try {
+    ui = DocumentApp.getUi();
+    ui.createAddonMenu()
+      .addItem('Convert to Unicode', 'showConvertDialogDocs')
+      .addToUi();
+    return;
+  } catch (e) {}
+
+  try {
+    ui = SpreadsheetApp.getUi();
+    ui.createAddonMenu()
+      .addItem('Convert to Unicode', 'showConvertDialogSheets')
+      .addToUi();
+    return;
+  } catch (e) {}
+
+  try {
+    ui = SlidesApp.getUi();
+    ui.createAddonMenu()
+      .addItem('Convert to Unicode', 'showConvertDialogSlides')
+      .addToUi();
+    return;
+  } catch (e) {}
+}
+
+/**
  * Opens the convert dialog, passing extracted runs as template data.
  *
  * @param {Array<{id: string, text: string, font: string|null}>} runs - Extracted runs.

@@ -1,14 +1,4 @@
 /**
- * Adds the Banglakit Converter menu when a Sheet is opened.
- */
-function onOpen() {
-  SpreadsheetApp.getUi()
-    .createAddonMenu()
-    .addItem('Convert to Unicode', 'showConvertDialogSheets')
-    .addToUi();
-}
-
-/**
  * Entry point for Sheets conversion.
  */
 function showConvertDialogSheets() {

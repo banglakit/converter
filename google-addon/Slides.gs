@@ -1,14 +1,4 @@
 /**
- * Adds the Banglakit Converter menu when a Presentation is opened.
- */
-function onOpen() {
-  SlidesApp.getUi()
-    .createAddonMenu()
-    .addItem('Convert to Unicode', 'showConvertDialogSlides')
-    .addToUi();
-}
-
-/**
  * Entry point for Slides conversion.
  */
 function showConvertDialogSlides() {

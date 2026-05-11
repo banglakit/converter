@@ -1,14 +1,4 @@
 /**
- * Adds the Banglakit Converter menu when a Doc is opened.
- */
-function onOpen() {
-  DocumentApp.getUi()
-    .createAddonMenu()
-    .addItem('Convert to Unicode', 'showConvertDialogDocs')
-    .addToUi();
-}
-
-/**
  * Entry point for Docs conversion — called from the menu.
  */
 function showConvertDialogDocs() {
