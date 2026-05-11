@@ -31,6 +31,23 @@ pub enum RunAction {
     },
 }
 
+impl<'a> From<crate::policy::ConvertedRun<'a>> for RunAction {
+    /// Canonical mapping from a [`crate::policy::ConvertedRun`] to the
+    /// adapter-facing [`RunAction`]. Used by every visitor that wraps
+    /// [`crate::policy::convert_run`] — `DefaultRunVisitor` below, the
+    /// CLI's `OoxmlVisitor`, and future host integrations.
+    fn from(r: crate::policy::ConvertedRun<'a>) -> RunAction {
+        if r.changed {
+            RunAction::Replace {
+                new_text: r.text,
+                new_font: r.font.map(str::to_string),
+            }
+        } else {
+            RunAction::Keep
+        }
+    }
+}
+
 /// A per-run callback. Adapters call [`RunVisitor::visit`] once for each
 /// extracted run and apply the returned [`RunAction`].
 pub trait RunVisitor {
@@ -71,12 +88,51 @@ impl<'a> RunVisitor for DefaultRunVisitor<'a> {
         if r.changed {
             self.any_change = true;
             self.runs_converted += 1;
-            RunAction::Replace {
-                new_text: r.text,
-                new_font: r.font.map(str::to_string),
-            }
-        } else {
-            RunAction::Keep
         }
+        RunAction::from(r)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::policy::ConvertedRun;
+    use crate::classifier::{Classification, Decision, Stage};
+
+    fn dummy_classification() -> Classification {
+        Classification {
+            decision: Decision::Latin,
+            confidence: 0.0,
+            stage: Stage::Heuristic,
+            signals: vec![],
+        }
+    }
+
+    #[test]
+    fn from_converted_changed_becomes_replace() {
+        let r = ConvertedRun {
+            text: "আমি".to_string(),
+            font: Some("Kalpurush"),
+            changed: true,
+            classification: dummy_classification(),
+        };
+        match RunAction::from(r) {
+            RunAction::Replace { new_text, new_font } => {
+                assert_eq!(new_text, "আমি");
+                assert_eq!(new_font.as_deref(), Some("Kalpurush"));
+            }
+            RunAction::Keep => panic!("expected Replace"),
+        }
+    }
+
+    #[test]
+    fn from_converted_unchanged_becomes_keep() {
+        let r = ConvertedRun {
+            text: "hello".to_string(),
+            font: None,
+            changed: false,
+            classification: dummy_classification(),
+        };
+        assert!(matches!(RunAction::from(r), RunAction::Keep));
     }
 }

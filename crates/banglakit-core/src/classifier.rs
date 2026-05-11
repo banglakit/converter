@@ -15,6 +15,7 @@
 
 use once_cell::sync::Lazy;
 use regex::Regex;
+use std::str::FromStr;
 
 use crate::encoding::{registry, Encoding};
 use crate::english;
@@ -36,6 +37,19 @@ impl Mode {
     }
 }
 
+impl FromStr for Mode {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "safe" => Ok(Mode::Safe),
+            "aggressive" => Ok(Mode::Aggressive),
+            other => Err(format!(
+                "unknown mode: {other:?}; expected \"safe\" or \"aggressive\""
+            )),
+        }
+    }
+}
+
 /// Final classification decision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
@@ -45,6 +59,25 @@ pub enum Decision {
     Ambiguous,
 }
 
+impl Decision {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Decision::AnsiBengali(_) => "ansi_bengali",
+            Decision::UnicodeBengali => "unicode_bengali",
+            Decision::Latin => "latin",
+            Decision::Ambiguous => "ambiguous",
+        }
+    }
+
+    /// The detected encoding family when this decision is `AnsiBengali`.
+    pub fn encoding(self) -> Option<Encoding> {
+        match self {
+            Decision::AnsiBengali(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 /// Which classifier stage produced the decision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
@@ -52,6 +85,17 @@ pub enum Stage {
     AnsiFont,
     UnicodeFont,
     Heuristic,
+}
+
+impl Stage {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Stage::UnicodeRange => "unicode_range",
+            Stage::AnsiFont => "ansi_font",
+            Stage::UnicodeFont => "unicode_font",
+            Stage::Heuristic => "heuristic",
+        }
+    }
 }
 
 /// Per-feature signal, useful for `--explain`.
@@ -275,5 +319,33 @@ mod tests {
             c.confidence
         );
         assert!(c.confidence > 0.50, "p={} too low for Bijoy text", c.confidence);
+    }
+
+    #[test]
+    fn stage_as_str_matches_audit_log_contract() {
+        assert_eq!(Stage::UnicodeRange.as_str(), "unicode_range");
+        assert_eq!(Stage::AnsiFont.as_str(), "ansi_font");
+        assert_eq!(Stage::UnicodeFont.as_str(), "unicode_font");
+        assert_eq!(Stage::Heuristic.as_str(), "heuristic");
+    }
+
+    #[test]
+    fn decision_as_str_and_encoding() {
+        assert_eq!(Decision::AnsiBengali(Encoding::Bijoy).as_str(), "ansi_bengali");
+        assert_eq!(Decision::UnicodeBengali.as_str(), "unicode_bengali");
+        assert_eq!(Decision::Latin.as_str(), "latin");
+        assert_eq!(Decision::Ambiguous.as_str(), "ambiguous");
+        assert_eq!(
+            Decision::AnsiBengali(Encoding::Bijoy).encoding(),
+            Some(Encoding::Bijoy)
+        );
+        assert_eq!(Decision::Latin.encoding(), None);
+    }
+
+    #[test]
+    fn mode_from_str_round_trips() {
+        assert_eq!("safe".parse::<Mode>().unwrap(), Mode::Safe);
+        assert_eq!("AGGRESSIVE".parse::<Mode>().unwrap(), Mode::Aggressive);
+        assert!("yolo".parse::<Mode>().is_err());
     }
 }
