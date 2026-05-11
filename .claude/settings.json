@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' | { read -r f; if echo \"$f\" | grep -qE '\\.(rs|toml)$'; then ~/.cargo/bin/cargo fmt --quiet; fi; } 2>/dev/null || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' | { read -r f; if echo \"$f\" | grep -qE 'crates/banglakit-(core|docx|pptx)/.*\\.rs$'; then ~/.cargo/bin/cargo build --release -p banglakit-cli 2>/dev/null && (target/release/banglakit-converter -i examples/test.docx -o /tmp/verify_output.docx 2>/dev/null; true) && /Applications/LibreOffice.app/Contents/MacOS/soffice --headless --convert-to pdf --outdir /tmp /tmp/verify_output.docx 2>/dev/null; fi; } 2>/dev/null || true",
+            "timeout": 120,
+            "statusMessage": "Rebuilding and converting test.docx...",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

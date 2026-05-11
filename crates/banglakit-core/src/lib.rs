@@ -17,13 +17,13 @@
 
 pub mod classifier;
 pub mod encoding;
-pub mod fonts;
-pub mod policy;
-pub mod visitor;
 mod english;
+pub mod fonts;
 mod mapping;
-mod normalize;
+pub mod normalize;
+pub mod policy;
 mod transliterate;
+pub mod visitor;
 
 pub use classifier::{classify, Classification, Decision, Mode, Signal, Stage};
 pub use encoding::{registry, Encoding, EncodingRegistry};

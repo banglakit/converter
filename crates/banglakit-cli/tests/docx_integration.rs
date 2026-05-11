@@ -41,7 +41,10 @@ fn docx_end_to_end() {
         .status()
         .expect("spawn CLI");
     // Exit code 1 = changes made (PRD FR-9).
-    assert!(matches!(status.code(), Some(0) | Some(1)), "status: {status}");
+    assert!(
+        matches!(status.code(), Some(0) | Some(1)),
+        "status: {status}"
+    );
 
     // Inspect output document.xml.
     let bytes = std::fs::read(&out).expect("read output");
@@ -84,11 +87,7 @@ fn plain_text_canonical_sample() {
         .spawn()
         .and_then(|mut child| {
             use std::io::Write;
-            child
-                .stdin
-                .as_mut()
-                .unwrap()
-                .write_all(input.as_bytes())?;
+            child.stdin.as_mut().unwrap().write_all(input.as_bytes())?;
             child.wait_with_output()
         })
         .expect("run CLI");
@@ -122,10 +121,7 @@ fn docx_cascade_resolves_font_from_theme() {
 
     let bytes = std::fs::read(&out).expect("read output");
     let xml = unzip_document_xml(&bytes);
-    assert!(
-        xml.contains("আমি বাংলায়"),
-        "Bijoy run not converted: {xml}"
-    );
+    assert!(xml.contains("আমি বাংলায়"), "Bijoy run not converted: {xml}");
     assert!(xml.contains("Kalpurush"), "font swap missed");
     assert!(
         xml.contains("Source: Daily Star"),
@@ -170,10 +166,7 @@ fn docx_cascade_resolves_font_from_paragraph_style() {
 
     let bytes = std::fs::read(&out).expect("read output");
     let xml = unzip_document_xml(&bytes);
-    assert!(
-        xml.contains("আমি বাংলায়"),
-        "Bijoy run not converted: {xml}"
-    );
+    assert!(xml.contains("আমি বাংলায়"), "Bijoy run not converted: {xml}");
     assert!(
         xml.contains("Kalpurush"),
         "font injection failed (no Kalpurush in output): {xml}"
@@ -198,11 +191,7 @@ fn english_is_untouched_in_safe_mode() {
         .spawn()
         .and_then(|mut child| {
             use std::io::Write;
-            child
-                .stdin
-                .as_mut()
-                .unwrap()
-                .write_all(input.as_bytes())?;
+            child.stdin.as_mut().unwrap().write_all(input.as_bytes())?;
             child.wait_with_output()
         })
         .expect("run CLI");

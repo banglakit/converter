@@ -37,16 +37,10 @@ const THEME_XML: &str = "word/theme/theme1.xml";
 
 /// Read `in_path`, stream each run past `visitor`, and write the result to
 /// `out_path`. Non-`word/document.xml` zip entries are copied verbatim.
-pub fn process_docx<V: RunVisitor>(
-    in_path: &Path,
-    out_path: &Path,
-    visitor: &mut V,
-) -> Result<()> {
-    let bytes = std::fs::read(in_path)
-        .with_context(|| format!("opening {}", in_path.display()))?;
+pub fn process_docx<V: RunVisitor>(in_path: &Path, out_path: &Path, visitor: &mut V) -> Result<()> {
+    let bytes = std::fs::read(in_path).with_context(|| format!("opening {}", in_path.display()))?;
     let out = process_docx_bytes(&bytes, visitor)?;
-    std::fs::write(out_path, out)
-        .with_context(|| format!("creating {}", out_path.display()))?;
+    std::fs::write(out_path, out).with_context(|| format!("creating {}", out_path.display()))?;
     Ok(())
 }
 
@@ -91,11 +85,10 @@ pub fn process_docx_bytes<V: RunVisitor>(input: &[u8], visitor: &mut V) -> Resul
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
         let name = entry.name().to_string();
-        let options = SimpleFileOptions::default()
-            .compression_method(match entry.compression() {
-                CompressionMethod::Stored => CompressionMethod::Stored,
-                _ => CompressionMethod::Deflated,
-            });
+        let options = SimpleFileOptions::default().compression_method(match entry.compression() {
+            CompressionMethod::Stored => CompressionMethod::Stored,
+            _ => CompressionMethod::Deflated,
+        });
         zip_out.start_file(&name, options)?;
         if name == DOCUMENT_XML {
             zip_out.write_all(new_document_xml.as_bytes())?;
@@ -140,9 +133,11 @@ fn transform_document_xml<V: RunVisitor>(
     let mut run_buffer: Option<RunBuffer> = None;
     let mut ppr_buffer: Option<Vec<Event<'static>>> = None;
     let mut paragraph_index: usize = 0;
-    let mut run_index: usize = 0;
     let mut in_paragraph = false;
     let mut paragraph_ctx = ParagraphContext::default();
+    // Collect all runs in a paragraph so we can merge orphaned combining-mark
+    // runs before conversion.
+    let mut paragraph_runs: Vec<RunBuffer> = Vec::new();
 
     let mut buf = Vec::new();
     loop {
@@ -154,20 +149,9 @@ fn transform_document_xml<V: RunVisitor>(
                 // Inside a run buffer, everything is captured until </w:r>.
                 if let Some(rb) = run_buffer.as_mut() {
                     if matches!(event, Event::End(_)) && local == Some(b"r") {
-                        // close run, flush
+                        // close run, stash for end-of-paragraph merging
                         rb.end_event = Some(event.into_owned());
-                        let rb_taken = run_buffer.take().unwrap();
-                        flush_run(
-                            &mut writer,
-                            rb_taken,
-                            paragraph_index,
-                            run_index,
-                            &paragraph_ctx,
-                            stylesheet,
-                            theme,
-                            visitor,
-                        )?;
-                        run_index += 1;
+                        paragraph_runs.push(run_buffer.take().unwrap());
                     } else {
                         rb.push(event.into_owned());
                     }
@@ -196,11 +180,40 @@ fn transform_document_xml<V: RunVisitor>(
                 match (&event, local) {
                     (Event::Start(_), Some(b"p")) => {
                         in_paragraph = true;
-                        run_index = 0;
+                        paragraph_runs.clear();
                         paragraph_ctx = ParagraphContext::default();
                         write_event(&mut writer, &event)?;
                     }
                     (Event::End(_), Some(b"p")) => {
+                        // End of paragraph: three-phase pipeline.
+                        // Phase 1: merge orphaned Bijoy combining-mark runs
+                        //   before conversion (pre-base ‡†ˆ‰w → next, post-base ©Š → prev).
+                        merge_orphaned_bijoy_runs(&mut paragraph_runs, stylesheet, &paragraph_ctx, theme);
+
+                        // Phase 2: convert every run through the visitor and
+                        //   collect results.
+                        let mut converted: Vec<ConvertedRunResult> = Vec::with_capacity(paragraph_runs.len());
+                        for (run_index, rb) in paragraph_runs.iter().enumerate() {
+                            converted.push(convert_run_buffer(
+                                rb,
+                                paragraph_index,
+                                run_index,
+                                &paragraph_ctx,
+                                stylesheet,
+                                theme,
+                                visitor,
+                            ));
+                        }
+
+                        // Phase 3: post-conversion merge — absorb runs that
+                        //   begin with Unicode Bengali combining marks into
+                        //   their left neighbour.
+                        merge_unicode_combining_runs(&mut paragraph_runs, &mut converted);
+
+                        // Emit.
+                        for (rb, cr) in paragraph_runs.drain(..).zip(converted.drain(..)) {
+                            write_converted_run(&mut writer, rb, cr)?;
+                        }
                         in_paragraph = false;
                         paragraph_index += 1;
                         write_event(&mut writer, &event)?;
@@ -285,16 +298,263 @@ impl RunBuffer {
     }
 }
 
-fn flush_run<V: RunVisitor>(
-    writer: &mut Writer<Cursor<Vec<u8>>>,
-    rb: RunBuffer,
+/// Bijoy characters that unambiguously map to pre-base combining marks
+/// (they precede the consonant in Bijoy byte order and should be merged
+/// into the *next* run):
+///   `†` → ে, `‡` → ে, `ˆ` → ৈ, `‰` → ৈ, `w` → ি
+///
+/// And post-base characters (they follow the consonant cluster and should
+/// be merged into the *previous* run):
+///   `©` → র্ (reph), `Š` → ৗ (au-length mark)
+///
+/// `w` is also a normal ASCII letter, so we only treat it as a Bijoy
+/// pre-base marker when the run is in a recognized Bijoy font.
+
+/// Returns `true` if a Bijoy run's text consists entirely of characters that
+/// produce orphaned combining marks — pre-base ones that belong on the next
+/// run. Whitespace-only tails are not merged.
+fn is_bijoy_prebase_only(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    text.chars().all(|c| matches!(c, '†' | '‡' | 'ˆ' | '‰'))
+}
+
+/// Like `is_bijoy_prebase_only` but includes `w` (ি), which is only safe
+/// to treat as a pre-base marker when the run is known to be Bijoy-encoded
+/// (i.e. has a Bijoy font).
+fn is_bijoy_prebase_only_with_font(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    text.chars()
+        .all(|c| matches!(c, '†' | '‡' | 'ˆ' | '‰' | 'w'))
+}
+
+/// Returns `true` if a Bijoy run's text consists entirely of post-base
+/// combining-mark characters: `©` (reph) or `Š` (au-length mark).
+fn is_bijoy_postbase_only(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    text.chars().all(|c| matches!(c, '©' | 'Š'))
+}
+
+/// Replace the `<w:t>` text content inside a `RunBuffer`'s events.
+fn set_run_text(events: &mut Vec<Event<'static>>, new_text: &str) {
+    let mut in_text = false;
+    let mut replaced = false;
+    let mut new_events: Vec<Event<'static>> = Vec::with_capacity(events.len());
+    for ev in events.drain(..) {
+        let local = local_name_bytes_of(&ev);
+        match (&ev, local) {
+            (Event::Start(_), Some(b"t")) => {
+                in_text = true;
+                // Ensure xml:space="preserve" so leading/trailing spaces survive.
+                let mut tag = BytesStart::new("w:t");
+                tag.push_attribute(("xml:space", "preserve"));
+                new_events.push(Event::Start(tag));
+            }
+            (Event::End(_), Some(b"t")) => {
+                if in_text && !replaced {
+                    new_events.push(Event::Text(
+                        quick_xml::events::BytesText::new(new_text).into_owned(),
+                    ));
+                    replaced = true;
+                }
+                in_text = false;
+                new_events.push(ev);
+            }
+            (Event::Text(_), _) if in_text => {
+                // Skip original text; we emit replacement at </w:t>.
+            }
+            _ => {
+                new_events.push(ev);
+            }
+        }
+    }
+    *events = new_events;
+}
+
+/// Extract the raw Bijoy text from a `RunBuffer`'s events.
+fn extract_text_from_events(events: &[Event<'static>]) -> String {
+    let mut text = String::new();
+    let mut in_text = false;
+    for ev in events {
+        match ev {
+            Event::Start(b) if local_name_bytes(b.name().into_inner()) == b"t" => {
+                in_text = true;
+            }
+            Event::End(b) if local_name_bytes(b.name().into_inner()) == b"t" => {
+                in_text = false;
+            }
+            Event::Text(t) if in_text => {
+                if let Ok(s) = t.unescape() {
+                    text.push_str(&s);
+                }
+            }
+            _ => {}
+        }
+    }
+    text
+}
+
+/// Resolve the font for a run buffer, using the same cascade as `flush_run`.
+fn resolve_run_font_from_buffer(
+    events: &[Event<'static>],
+    stylesheet: &Stylesheet,
+    paragraph: &ParagraphContext,
+    theme: Option<&Theme>,
+) -> Option<String> {
+    let (run_font, _) = extract_font_and_text(events, theme);
+    stylesheet
+        .resolve_run_font(
+            run_font.as_deref(),
+            paragraph.run_default_font.as_deref(),
+            paragraph.style_id.as_deref(),
+        )
+        .map(|s| s.to_string())
+}
+
+/// Returns `true` if the font name belongs to a known Bijoy/ANSI Bengali family.
+fn is_bijoy_font(font: Option<&str>) -> bool {
+    use banglakit_core::encoding::Encoding;
+    match font {
+        Some(f) => banglakit_core::fonts::is_ansi_font(f, Encoding::Bijoy),
+        None => false,
+    }
+}
+
+/// Merge orphaned Bijoy combining-mark runs into their neighbours.
+///
+/// Pre-base orphans (`†` `‡` `ˆ` `‰`, and `w` when in Bijoy font) are
+/// prepended to the **next** run's Bijoy text. Post-base orphans (`©` `Š`)
+/// are appended to the **previous** run's text. The orphan run's XML events
+/// are removed (the merged run keeps its own formatting, which carries the
+/// consonant and will produce the correct glyph after transliteration).
+///
+/// Only merges when both runs share a Bijoy font so we never accidentally
+/// merge Latin text into a non-Bijoy run.
+fn merge_orphaned_bijoy_runs(
+    runs: &mut Vec<RunBuffer>,
+    stylesheet: &Stylesheet,
+    paragraph: &ParagraphContext,
+    theme: Option<&Theme>,
+) {
+    if runs.len() < 2 {
+        return;
+    }
+
+    // Pre-compute font and text for each run.
+    let fonts: Vec<Option<String>> = runs
+        .iter()
+        .map(|rb| resolve_run_font_from_buffer(&rb.events, stylesheet, paragraph, theme))
+        .collect();
+    let mut texts: Vec<String> = runs
+        .iter()
+        .map(|rb| extract_text_from_events(&rb.events))
+        .collect();
+
+    // Indices of runs to remove after merging (orphans whose text was merged elsewhere).
+    let mut remove: Vec<bool> = vec![false; runs.len()];
+
+    // Forward pass: merge pre-base orphans into the next run.
+    for i in 0..runs.len() - 1 {
+        if remove[i] {
+            continue;
+        }
+        let font_i = fonts[i].as_deref();
+        if !is_bijoy_font(font_i) {
+            continue;
+        }
+        let is_orphan = is_bijoy_prebase_only(&texts[i])
+            || (is_bijoy_prebase_only_with_font(&texts[i]) && is_bijoy_font(font_i));
+        if !is_orphan {
+            continue;
+        }
+        // Find next non-removed run.
+        let mut j = i + 1;
+        while j < runs.len() && remove[j] {
+            j += 1;
+        }
+        if j >= runs.len() {
+            continue;
+        }
+        // Only merge if the target run is also Bijoy.
+        if !is_bijoy_font(fonts[j].as_deref()) {
+            continue;
+        }
+        // Prepend orphan text to next run.
+        let orphan_text = texts[i].clone();
+        texts[j] = format!("{}{}", orphan_text, texts[j]);
+        set_run_text(&mut runs[j].events, &texts[j]);
+        remove[i] = true;
+    }
+
+    // Backward pass: merge post-base orphans into the previous run.
+    for i in (1..runs.len()).rev() {
+        if remove[i] {
+            continue;
+        }
+        let font_i = fonts[i].as_deref();
+        if !is_bijoy_font(font_i) {
+            continue;
+        }
+        if !is_bijoy_postbase_only(&texts[i]) {
+            continue;
+        }
+        // Find previous non-removed run.
+        let mut j = i - 1;
+        loop {
+            if !remove[j] {
+                break;
+            }
+            if j == 0 {
+                break;
+            }
+            j -= 1;
+        }
+        if remove[j] {
+            continue;
+        }
+        if !is_bijoy_font(fonts[j].as_deref()) {
+            continue;
+        }
+        // Append orphan text to previous run.
+        let orphan_text = texts[i].clone();
+        texts[j] = format!("{}{}", texts[j], orphan_text);
+        set_run_text(&mut runs[j].events, &texts[j]);
+        remove[i] = true;
+    }
+
+    // Remove orphan runs (iterate in reverse to preserve indices).
+    for i in (0..runs.len()).rev() {
+        if remove[i] {
+            runs.remove(i);
+        }
+    }
+}
+
+/// The result of converting a single run through the visitor, before writing.
+struct ConvertedRunResult {
+    /// Replacement text, if any.
+    new_text: Option<String>,
+    /// Replacement font, if any.
+    new_font: Option<String>,
+    /// Whether this run should be suppressed (its content was merged elsewhere).
+    suppress: bool,
+}
+
+/// Convert a run through the visitor without writing to the output.
+fn convert_run_buffer<V: RunVisitor>(
+    rb: &RunBuffer,
     paragraph_index: usize,
     run_index: usize,
     paragraph: &ParagraphContext,
     stylesheet: &Stylesheet,
     theme: Option<&Theme>,
     visitor: &mut V,
-) -> Result<()> {
+) -> ConvertedRunResult {
     let (run_font, text) = extract_font_and_text(&rb.events, theme);
     let resolved_font_owned: Option<String> = stylesheet
         .resolve_run_font(
@@ -315,25 +575,139 @@ fn flush_run<V: RunVisitor>(
         visitor.visit(run)
     };
 
+    match action {
+        RunAction::Keep => ConvertedRunResult {
+            new_text: None,
+            new_font: None,
+            suppress: false,
+        },
+        RunAction::Replace { new_text, new_font } => ConvertedRunResult {
+            new_text: Some(new_text),
+            new_font: new_font,
+            suppress: false,
+        },
+    }
+}
+
+/// Write a converted run to the XML writer.
+fn write_converted_run(
+    writer: &mut Writer<Cursor<Vec<u8>>>,
+    rb: RunBuffer,
+    cr: ConvertedRunResult,
+) -> Result<()> {
+    if cr.suppress {
+        return Ok(());
+    }
     write_event(writer, &rb.start_event)?;
-    let (new_text, new_font) = match action {
-        RunAction::Keep => (None, None),
-        RunAction::Replace { new_text, new_font } => (Some(new_text), new_font),
-    };
-    // If we're changing the font on a run that has no existing <w:rFonts>
-    // (or even no <w:rPr> at all), inject the structure so the change
-    // survives. Without this, the new font name would be lost and the run
-    // would inherit from the original style — printing Unicode Bengali
-    // through a SutonnyMJ-styled paragraph.
-    let events_to_emit: Vec<Event<'static>> = match new_font.as_deref() {
+    let events_to_emit: Vec<Event<'static>> = match cr.new_font.as_deref() {
         Some(font) => inject_font_if_missing(&rb.events, font),
         None => rb.events.clone(),
     };
-    emit_run_events(writer, &events_to_emit, new_text.as_deref(), new_font.as_deref())?;
+    emit_run_events(
+        writer,
+        &events_to_emit,
+        cr.new_text.as_deref(),
+        cr.new_font.as_deref(),
+    )?;
     if let Some(end) = rb.end_event {
         write_event(writer, &end)?;
     }
     Ok(())
+}
+
+/// Returns `true` if `c` is a Unicode Bengali combining mark (dependent vowel
+/// sign, hasanta, anusvara, visarga, candrabindu, nukta, or au-length mark).
+fn is_bengali_combining(c: char) -> bool {
+    matches!(c,
+        '\u{0981}'..='\u{0983}' | // candrabindu, anusvara, visarga
+        '\u{09BC}'              | // nukta
+        '\u{09BE}'..='\u{09CC}' | // dependent vowel signs (aa through au)
+        '\u{09CD}'              | // hasanta
+        '\u{09D7}'              | // au-length mark
+        '\u{09E2}'..='\u{09E3}'   // vocalic l/ll
+    )
+}
+
+/// Post-conversion pass: merge runs whose converted text starts with Bengali
+/// combining marks into the preceding run. This handles cases where Bijoy
+/// conjunct-formers (e.g. `¨` → `্য`, `ª` → `্র`) are split into separate
+/// XML runs from their base consonants.
+fn merge_unicode_combining_runs(
+    runs: &mut Vec<RunBuffer>,
+    converted: &mut Vec<ConvertedRunResult>,
+) {
+    if runs.len() < 2 {
+        return;
+    }
+    debug_assert_eq!(runs.len(), converted.len());
+
+    // Walk right-to-left so we can chain merges (if run i+1 merged into i,
+    // and run i now starts with a combining mark, it can merge into i-1).
+    for i in (1..runs.len()).rev() {
+        if converted[i].suppress {
+            continue;
+        }
+        // Determine the effective text of this run after conversion.
+        let text_i = effective_text(&runs[i], &converted[i]);
+        if text_i.is_empty() {
+            continue;
+        }
+        let first_char = text_i.chars().next().unwrap();
+        if !is_bengali_combining(first_char) {
+            continue;
+        }
+
+        // Find the nearest preceding non-suppressed run.
+        let mut j = i - 1;
+        loop {
+            if !converted[j].suppress {
+                break;
+            }
+            if j == 0 {
+                break;
+            }
+            j -= 1;
+        }
+        if converted[j].suppress {
+            continue;
+        }
+
+        let text_j = effective_text(&runs[j], &converted[j]);
+        if text_j.is_empty() {
+            continue;
+        }
+        // Only merge if the previous run's text ends with Bengali script
+        // content (a consonant, vowel sign, or other Bengali character).
+        // This prevents merging a combining mark onto a Latin/number run.
+        let last_char_j = text_j.chars().last().unwrap();
+        let is_bengali_context = matches!(last_char_j,
+            '\u{0980}'..='\u{09FF}' // Bengali block
+        );
+        if !is_bengali_context {
+            continue;
+        }
+
+        // Merge: append run i's text to run j's text, then re-run
+        // reorder passes to fix ordering at the merge boundary.
+        let concat = format!("{}{}", text_j, text_i);
+        let merged = banglakit_core::normalize::anusvara_reorder(
+            &banglakit_core::normalize::subjoiner_reorder(&concat),
+        );
+        converted[j].new_text = Some(merged);
+        // If run j had a font change, keep it; otherwise inherit from run i.
+        if converted[j].new_font.is_none() {
+            converted[j].new_font = converted[i].new_font.clone();
+        }
+        converted[i].suppress = true;
+    }
+}
+
+/// Get the effective text of a run after conversion.
+fn effective_text(rb: &RunBuffer, cr: &ConvertedRunResult) -> String {
+    match &cr.new_text {
+        Some(t) => t.clone(),
+        None => extract_text_from_events(&rb.events),
+    }
 }
 
 /// If `events` has no `<w:rFonts>`, inject one so the run carries the new
@@ -552,7 +926,8 @@ mod tests {
         let xml = MINIMAL_DOC.to_string();
         let sheet = Stylesheet::default();
         let out =
-            transform_document_xml(&xml, &sheet, None, &mut |_run: RunRef<'_>| RunAction::Keep).unwrap();
+            transform_document_xml(&xml, &sheet, None, &mut |_run: RunRef<'_>| RunAction::Keep)
+                .unwrap();
         assert!(out.contains("Avwg evsjvq"), "output: {out}");
         assert!(out.contains("Hello world"));
     }
@@ -672,6 +1047,217 @@ mod tests {
         })
         .unwrap();
         assert_eq!(seen.as_deref(), Some("Arial"));
+    }
+
+    #[test]
+    fn merge_prebase_orphan_ekar_into_next_run() {
+        // Simulates: run1 = "‡" (e-kar), run2 = "`k" (দেশ in Bijoy).
+        // After merge, run1 should be removed and run2 should have "‡`k".
+        let xml = r#"<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="SutonnyMJ" w:hAnsi="SutonnyMJ"/></w:rPr>
+        <w:t>‡</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="SutonnyMJ" w:hAnsi="SutonnyMJ"/></w:rPr>
+        <w:t>`k</w:t>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>"#;
+        let sheet = Stylesheet::default();
+        let mut seen_texts: Vec<String> = Vec::new();
+        let _ = transform_document_xml(xml, &sheet, None, &mut |run: RunRef<'_>| {
+            seen_texts.push(run.text.to_string());
+            RunAction::Keep
+        })
+        .unwrap();
+        // After merge the visitor should see one run with the combined text.
+        assert_eq!(seen_texts.len(), 1, "orphan run should be merged: {seen_texts:?}");
+        assert_eq!(seen_texts[0], "‡`k");
+    }
+
+    #[test]
+    fn merge_postbase_orphan_reph_into_previous_run() {
+        // Simulates: run1 = "Kv" (consonant cluster), run2 = "©" (reph).
+        // After merge, run2 should be removed and run1 should have "Kv©".
+        let xml = r#"<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="SutonnyMJ" w:hAnsi="SutonnyMJ"/></w:rPr>
+        <w:t>Kv</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="SutonnyMJ" w:hAnsi="SutonnyMJ"/></w:rPr>
+        <w:t>©</w:t>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>"#;
+        let sheet = Stylesheet::default();
+        let mut seen_texts: Vec<String> = Vec::new();
+        let _ = transform_document_xml(xml, &sheet, None, &mut |run: RunRef<'_>| {
+            seen_texts.push(run.text.to_string());
+            RunAction::Keep
+        })
+        .unwrap();
+        assert_eq!(seen_texts.len(), 1, "orphan run should be merged: {seen_texts:?}");
+        assert_eq!(seen_texts[0], "Kv©");
+    }
+
+    #[test]
+    fn no_merge_across_different_fonts() {
+        // run1 = "‡" in SutonnyMJ, run2 = "hello" in Arial.
+        // Should NOT merge because fonts differ.
+        let xml = r#"<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="SutonnyMJ" w:hAnsi="SutonnyMJ"/></w:rPr>
+        <w:t>‡</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/></w:rPr>
+        <w:t>hello</w:t>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>"#;
+        let sheet = Stylesheet::default();
+        let mut seen_texts: Vec<String> = Vec::new();
+        let _ = transform_document_xml(xml, &sheet, None, &mut |run: RunRef<'_>| {
+            seen_texts.push(run.text.to_string());
+            RunAction::Keep
+        })
+        .unwrap();
+        assert_eq!(seen_texts.len(), 2, "should NOT merge across fonts: {seen_texts:?}");
+    }
+
+    #[test]
+    fn no_merge_when_non_bijoy_font() {
+        // run1 = "‡" in Arial (not Bijoy), run2 = "text" in Arial.
+        // Should NOT merge — the orphan detection requires a Bijoy font.
+        let xml = r#"<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/></w:rPr>
+        <w:t>‡</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/></w:rPr>
+        <w:t>text</w:t>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>"#;
+        let sheet = Stylesheet::default();
+        let mut seen_texts: Vec<String> = Vec::new();
+        let _ = transform_document_xml(xml, &sheet, None, &mut |run: RunRef<'_>| {
+            seen_texts.push(run.text.to_string());
+            RunAction::Keep
+        })
+        .unwrap();
+        assert_eq!(seen_texts.len(), 2, "should NOT merge non-Bijoy fonts: {seen_texts:?}");
+    }
+
+    #[test]
+    fn merge_multiple_prebase_orphans_chain() {
+        // run1 = "‡" (e-kar), run2 = "‰" (ai-kar), run3 = "consonant".
+        // Both orphans should merge into run3.
+        let xml = r#"<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="SutonnyMJ" w:hAnsi="SutonnyMJ"/></w:rPr>
+        <w:t>‡</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="SutonnyMJ" w:hAnsi="SutonnyMJ"/></w:rPr>
+        <w:t>‰</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="SutonnyMJ" w:hAnsi="SutonnyMJ"/></w:rPr>
+        <w:t>`k</w:t>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>"#;
+        let sheet = Stylesheet::default();
+        let mut seen_texts: Vec<String> = Vec::new();
+        let _ = transform_document_xml(xml, &sheet, None, &mut |run: RunRef<'_>| {
+            seen_texts.push(run.text.to_string());
+            RunAction::Keep
+        })
+        .unwrap();
+        // run1 (‡) merges into run2 (‰), then ‡‰ merges into run3.
+        assert_eq!(seen_texts.len(), 1, "chained orphans should merge: {seen_texts:?}");
+        assert!(seen_texts[0].starts_with("‡"), "merged text: {}", seen_texts[0]);
+    }
+
+    #[test]
+    fn post_conversion_merge_combining_mark_into_previous() {
+        // Two SutonnyMJ runs that, after conversion, produce a combining mark
+        // at the start of the second run. The post-conversion merge should
+        // absorb it into the first.
+        //
+        // run1: "K" → converts to "ক" (ka)
+        // run2: "¨" → converts to "্য" (hasanta + ya = ya-phala)
+        // After merge: output should be one run containing "ক্য" (kya conjunct).
+        let xml = r#"<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="SutonnyMJ" w:hAnsi="SutonnyMJ"/></w:rPr>
+        <w:t>K</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="SutonnyMJ" w:hAnsi="SutonnyMJ"/></w:rPr>
+        <w:t>¨</w:t>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>"#;
+        let sheet = Stylesheet::default();
+        use banglakit_core::policy::{convert_run, ConvertOptions};
+        use banglakit_core::classifier::Mode;
+        use banglakit_core::encoding::Encoding;
+        let opts = ConvertOptions {
+            encoding: Encoding::Bijoy,
+            mode: Mode::Safe,
+            threshold: None,
+            unicode_font: "Kalpurush",
+        };
+        let out = transform_document_xml(xml, &sheet, None, &mut |run: RunRef<'_>| {
+            RunAction::from(convert_run(run.text, run.font_name, &opts))
+        })
+        .unwrap();
+        // The output should NOT have a run starting with ্য (hasanta).
+        // Instead, "ক" and "্য" should be merged into one run.
+        let texts: Vec<&str> = out
+            .split("<w:t")
+            .skip(1)
+            .filter_map(|s| {
+                let start = s.find('>')? + 1;
+                let end = s.find("</w:t>")?;
+                Some(&s[start..end])
+            })
+            .collect();
+        assert_eq!(texts.len(), 1, "should merge into one run, got: {texts:?}");
+        assert!(
+            texts[0].contains("ক") && texts[0].contains("্য"),
+            "merged text should contain kya conjunct: {}",
+            texts[0]
+        );
     }
 
     const MINIMAL_DOC: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

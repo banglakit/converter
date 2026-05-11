@@ -61,12 +61,11 @@ const BIJOY_REGISTRY: EncodingRegistry = EncodingRegistry {
     // Common Bijoy vowel-sign / conjunct-marker glyphs that rarely appear in
     // English prose. See PRD FR-3 and SDD §4 Stage 4.
     distinctive_chars: &[
-        '†', '‡', '•', '‰', 'Š', '‹', 'Œ', '—', '¯', '¦', '§', '©', 'ª', '«',
-        '¬', '®', 'µ', '¶', '·', '¸', '»', '¼', '½', '¾', 'À', 'Á', 'Â', 'Ã',
-        'Ä', 'Å', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Ï', '×', 'Ø', 'Ù', 'Ú',
-        'Û', 'Ü', 'Þ', 'ß', 'à', 'á', 'â', 'ã', 'ä', 'å', 'ç', 'é', 'ê', 'ë',
-        'ì', 'í', 'î', 'ï', 'ð', 'ò', 'ó', 'ô', 'õ', 'ö', '÷', 'ù', 'û', 'ü',
-        'ý', 'þ', 'š', '›', '¡', '¢', '£', '¥',
+        '†', '‡', '•', '‰', 'Š', '‹', 'Œ', '—', '¯', '¦', '§', '©', 'ª', '«', '¬', '®', 'µ', '¶',
+        '·', '¸', '»', '¼', '½', '¾', 'À', 'Á', 'Â', 'Ã', 'Ä', 'Å', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë',
+        'Ì', 'Ï', '×', 'Ø', 'Ù', 'Ú', 'Û', 'Ü', 'Þ', 'ß', 'à', 'á', 'â', 'ã', 'ä', 'å', 'ç', 'é',
+        'ê', 'ë', 'ì', 'í', 'î', 'ï', 'ð', 'ò', 'ó', 'ô', 'õ', 'ö', '÷', 'ù', 'û', 'ü', 'ý', 'þ',
+        'š', '›', '¡', '¢', '£', '¥',
     ],
     // High-signal bigrams: aa-kar (`v`), i-kar (`w`), e-kar (`‡`), each
     // attached to a consonant. These near-uniquely identify Bijoy because
@@ -76,16 +75,14 @@ const BIJOY_REGISTRY: EncodingRegistry = EncodingRegistry {
     // common in any Bijoy paragraph).
     bigram_patterns: &[
         // aa-kar (v) attached to common consonants
-        "Av", "Bv", "Kv", "Mv", "Nv", "Pv", "Rv", "Sv", "Tv", "Yv", "Zv",
-        "av", "bv", "cv", "dv", "ev", "fv", "gv", "hv", "iv", "jv", "kv",
-        "lv", "mv", "nv", "pv", "qv",
+        "Av", "Bv", "Kv", "Mv", "Nv", "Pv", "Rv", "Sv", "Tv", "Yv", "Zv", "av", "bv", "cv", "dv",
+        "ev", "fv", "gv", "hv", "iv", "jv", "kv", "lv", "mv", "nv", "pv", "qv",
         // i-kar (w) prefix
-        "wK", "wM", "wP", "wR", "wZ", "wa", "wb", "wc", "wd", "we", "wf",
-        "wg", "wh", "wi", "wj", "wk", "wl", "wm", "wn", "wp", "wq", "wQ",
+        "wK", "wM", "wP", "wR", "wZ", "wa", "wb", "wc", "wd", "we", "wf", "wg", "wh", "wi", "wj",
+        "wk", "wl", "wm", "wn", "wp", "wq", "wQ",
         // e-kar (‡) prefix (high-byte glyph; appears as U+2021)
-        "‡K", "‡L", "‡M", "‡N", "‡P", "‡Q", "‡R", "‡S", "‡T", "‡U", "‡V",
-        "‡W", "‡X", "‡Y", "‡Z", "‡b", "‡c", "‡d", "‡e", "‡f", "‡g", "‡h",
-        "‡i", "‡j", "‡k", "‡l", "‡m", "‡n", "‡p", "‡q",
+        "‡K", "‡L", "‡M", "‡N", "‡P", "‡Q", "‡R", "‡S", "‡T", "‡U", "‡V", "‡W", "‡X", "‡Y", "‡Z",
+        "‡b", "‡c", "‡d", "‡e", "‡f", "‡g", "‡h", "‡i", "‡j", "‡k", "‡l", "‡m", "‡n", "‡p", "‡q",
         // a few common standalone particles
         "Ges", "Aviv", "Zviv", "wQj",
     ],

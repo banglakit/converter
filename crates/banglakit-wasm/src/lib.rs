@@ -22,6 +22,15 @@ use serde::Serialize;
 use std::str::FromStr;
 use wasm_bindgen::prelude::*;
 
+fn file_result_to_js(bytes: Vec<u8>, any_change: bool, runs_converted: usize) -> JsValue {
+    let obj = js_sys::Object::new();
+    let ua = js_sys::Uint8Array::from(bytes.as_slice());
+    js_sys::Reflect::set(&obj, &"bytes".into(), &ua).unwrap();
+    js_sys::Reflect::set(&obj, &"anyChange".into(), &any_change.into()).unwrap();
+    js_sys::Reflect::set(&obj, &"runsConverted".into(), &runs_converted.into()).unwrap();
+    obj.into()
+}
+
 #[derive(Serialize)]
 struct SignalJs {
     name: &'static str,
@@ -105,7 +114,10 @@ pub fn classify_run(
         signals: c
             .signals
             .into_iter()
-            .map(|s| SignalJs { name: s.name, value: s.value })
+            .map(|s| SignalJs {
+                name: s.name,
+                value: s.value,
+            })
             .collect(),
     };
     serde_wasm_bindgen::to_value(&out).map_err(JsError::from)
@@ -168,13 +180,6 @@ pub fn core_version() -> String {
 }
 
 #[derive(Serialize)]
-struct FileConversionJs {
-    bytes: Vec<u8>,
-    any_change: bool,
-    runs_converted: usize,
-}
-
-#[derive(Serialize)]
 struct TextConversionJs {
     text: String,
     changed: bool,
@@ -211,12 +216,11 @@ pub fn convert_docx(
     let mut visitor = DefaultRunVisitor::new(opts);
     let out = banglakit_docx::process_docx_bytes(bytes, &mut visitor)
         .map_err(|e| JsError::new(&format!("{e:#}")))?;
-    let result = FileConversionJs {
-        bytes: out,
-        any_change: visitor.any_change,
-        runs_converted: visitor.runs_converted,
-    };
-    serde_wasm_bindgen::to_value(&result).map_err(JsError::from)
+    Ok(file_result_to_js(
+        out,
+        visitor.any_change,
+        visitor.runs_converted,
+    ))
 }
 
 /// Convert an in-memory `.pptx` deck. Same return shape as [`convert_docx`].
@@ -231,12 +235,11 @@ pub fn convert_pptx(
     let mut visitor = DefaultRunVisitor::new(opts);
     let out = banglakit_pptx::process_pptx_bytes(bytes, &mut visitor)
         .map_err(|e| JsError::new(&format!("{e:#}")))?;
-    let result = FileConversionJs {
-        bytes: out,
-        any_change: visitor.any_change,
-        runs_converted: visitor.runs_converted,
-    };
-    serde_wasm_bindgen::to_value(&result).map_err(JsError::from)
+    Ok(file_result_to_js(
+        out,
+        visitor.any_change,
+        visitor.runs_converted,
+    ))
 }
 
 /// Convert a plain-text blob — treats the whole input as one run, runs the

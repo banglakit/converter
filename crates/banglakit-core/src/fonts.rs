@@ -24,17 +24,23 @@ static UNICODE_FONTS: OnceCell<Vec<String>> = OnceCell::new();
 
 fn bijoy_fonts() -> &'static [String] {
     BIJOY_FONTS.get_or_init(|| {
-        let raw: AnsiFontFile = toml::from_str(registry(Encoding::Bijoy).fonts_toml)
-            .expect("bijoy/fonts.toml parse");
-        raw.ansi_fonts.into_iter().map(|s| s.to_ascii_lowercase()).collect()
+        let raw: AnsiFontFile =
+            toml::from_str(registry(Encoding::Bijoy).fonts_toml).expect("bijoy/fonts.toml parse");
+        raw.ansi_fonts
+            .into_iter()
+            .map(|s| s.to_ascii_lowercase())
+            .collect()
     })
 }
 
 fn unicode_fonts() -> &'static [String] {
     UNICODE_FONTS.get_or_init(|| {
-        let raw: UnicodeFontFile = toml::from_str(UNICODE_FONTS_TOML)
-            .expect("unicode_fonts.toml parse");
-        raw.unicode_fonts.into_iter().map(|s| s.to_ascii_lowercase()).collect()
+        let raw: UnicodeFontFile =
+            toml::from_str(UNICODE_FONTS_TOML).expect("unicode_fonts.toml parse");
+        raw.unicode_fonts
+            .into_iter()
+            .map(|s| s.to_ascii_lowercase())
+            .collect()
     })
 }
 
@@ -43,7 +49,11 @@ fn unicode_fonts() -> &'static [String] {
 /// prefix.
 pub fn strip_subset_prefix(name: &str) -> &str {
     match name.split_once('+') {
-        Some((prefix, rest)) if prefix.len() == 6 && prefix.chars().all(|c| c.is_ascii_uppercase()) => rest,
+        Some((prefix, rest))
+            if prefix.len() == 6 && prefix.chars().all(|c| c.is_ascii_uppercase()) =>
+        {
+            rest
+        }
         _ => name,
     }
 }

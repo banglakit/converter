@@ -78,7 +78,11 @@ pub struct DefaultRunVisitor<'a> {
 
 impl<'a> DefaultRunVisitor<'a> {
     pub fn new(opts: ConvertOptions<'a>) -> Self {
-        Self { opts, any_change: false, runs_converted: 0 }
+        Self {
+            opts,
+            any_change: false,
+            runs_converted: 0,
+        }
     }
 }
 
@@ -96,8 +100,8 @@ impl<'a> RunVisitor for DefaultRunVisitor<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::policy::ConvertedRun;
     use crate::classifier::{Classification, Decision, Stage};
+    use crate::policy::ConvertedRun;
 
     fn dummy_classification() -> Classification {
         Classification {

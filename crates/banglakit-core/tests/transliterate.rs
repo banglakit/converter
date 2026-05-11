@@ -12,13 +12,19 @@ fn assert_converts(bijoy: &str, expected_unicode: &str) {
     let got = transliterate(bijoy, Encoding::Bijoy);
     let expected = nfc(expected_unicode);
     assert_eq!(
-        got, expected,
+        got,
+        expected,
         "\nBijoy:    {:?}\nExpected: {:?} ({:?})\nGot:      {:?} ({:?})",
         bijoy,
         expected,
-        expected.chars().map(|c| format!("U+{:04X}", c as u32)).collect::<Vec<_>>(),
+        expected
+            .chars()
+            .map(|c| format!("U+{:04X}", c as u32))
+            .collect::<Vec<_>>(),
         got,
-        got.chars().map(|c| format!("U+{:04X}", c as u32)).collect::<Vec<_>>(),
+        got.chars()
+            .map(|c| format!("U+{:04X}", c as u32))
+            .collect::<Vec<_>>(),
     );
 }
 

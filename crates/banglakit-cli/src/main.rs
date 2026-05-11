@@ -130,7 +130,11 @@ fn run(cli: &Cli) -> Result<ExitCode> {
     if let Some(sink) = audit_sink.as_mut() {
         sink.flush()?;
     }
-    Ok(if any_change { ExitCode::from(1) } else { ExitCode::SUCCESS })
+    Ok(if any_change {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    })
 }
 
 type AuditSink = Box<dyn Write>;
@@ -139,8 +143,8 @@ fn open_audit_sink(cli: &Cli) -> Result<Option<AuditSink>> {
     if cli.audit_stdout {
         Ok(Some(Box::new(io::stdout()) as AuditSink))
     } else if let Some(p) = &cli.audit {
-        let f = fs::File::create(p)
-            .with_context(|| format!("creating audit file {}", p.display()))?;
+        let f =
+            fs::File::create(p).with_context(|| format!("creating audit file {}", p.display()))?;
         Ok(Some(Box::new(f) as AuditSink))
     } else {
         Ok(None)
@@ -198,8 +202,7 @@ fn process_text_input(
     audit_sink: &mut Option<AuditSink>,
 ) -> Result<bool> {
     let input_bytes = read_input(&cli.input)?;
-    let input_str = std::str::from_utf8(&input_bytes)
-        .context("input is not valid UTF-8")?;
+    let input_str = std::str::from_utf8(&input_bytes).context("input is not valid UTF-8")?;
     let opts = ConvertOptions {
         encoding,
         mode,
@@ -225,7 +228,11 @@ fn process_text_input(
             decision: result.classification.decision.as_str(),
             confidence: result.classification.confidence,
             original_text_b64: B64.encode(&input_bytes),
-            unicode_output: if result.changed { Some(result.text.clone()) } else { None },
+            unicode_output: if result.changed {
+                Some(result.text.clone())
+            } else {
+                None
+            },
         },
     )?;
 
@@ -375,7 +382,11 @@ impl<'a> RunVisitor for OoxmlVisitor<'a> {
                 decision: c.decision.as_str(),
                 confidence: c.confidence,
                 original_text_b64: B64.encode(run.text.as_bytes()),
-                unicode_output: if result.changed { Some(result.text.clone()) } else { None },
+                unicode_output: if result.changed {
+                    Some(result.text.clone())
+                } else {
+                    None
+                },
             },
         );
 

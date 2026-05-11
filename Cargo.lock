@@ -136,6 +136,7 @@ dependencies = [
  "banglakit-core",
  "banglakit-docx",
  "banglakit-pptx",
+ "js-sys",
  "serde",
  "serde-wasm-bindgen",
  "wasm-bindgen",

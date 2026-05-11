@@ -61,7 +61,9 @@ pub fn convert_run<'a>(
     opts: &'a ConvertOptions<'a>,
 ) -> ConvertedRun<'a> {
     let c = classify(text, font_hint, opts.encoding, opts.mode);
-    let threshold = opts.threshold.unwrap_or_else(|| opts.mode.default_threshold());
+    let threshold = opts
+        .threshold
+        .unwrap_or_else(|| opts.mode.default_threshold());
 
     let should_convert = match c.decision {
         Decision::AnsiBengali(_) => true,
@@ -107,7 +109,10 @@ mod tests {
         assert!(r.changed);
         assert_eq!(r.font, Some("Kalpurush"));
         assert!(r.text.contains("আমি"));
-        assert!(matches!(r.classification.decision, Decision::AnsiBengali(_)));
+        assert!(matches!(
+            r.classification.decision,
+            Decision::AnsiBengali(_)
+        ));
     }
 
     #[test]
@@ -125,7 +130,10 @@ mod tests {
         let o = opts(Mode::Safe, "Kalpurush");
         let r = convert_run("আমি বাংলায়", None, &o);
         assert!(!r.changed);
-        assert!(matches!(r.classification.decision, Decision::UnicodeBengali));
+        assert!(matches!(
+            r.classification.decision,
+            Decision::UnicodeBengali
+        ));
     }
 
     #[test]

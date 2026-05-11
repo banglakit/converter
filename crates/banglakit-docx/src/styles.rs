@@ -148,8 +148,7 @@ pub fn parse_styles(xml: &str, theme: Option<&Theme>) -> Result<Stylesheet> {
                             }
                         }
                     }
-                    (Event::Empty(b), Some(b"basedOn"))
-                    | (Event::Start(b), Some(b"basedOn")) => {
+                    (Event::Empty(b), Some(b"basedOn")) | (Event::Start(b), Some(b"basedOn")) => {
                         if let Some((_, style, _)) = current_style.as_mut() {
                             style.based_on = attr(b, b"val");
                         }
@@ -289,7 +288,10 @@ mod tests {
     #[test]
     fn cascade_default_paragraph_style_runs_fourth() {
         let s = parse_styles(STYLES_XML, None).unwrap();
-        assert_eq!(s.resolve_run_font(None, None, None), Some("Times New Roman"));
+        assert_eq!(
+            s.resolve_run_font(None, None, None),
+            Some("Times New Roman")
+        );
     }
 
     #[test]
@@ -320,11 +322,17 @@ mod tests {
         let mut s = Stylesheet::default();
         s.styles.insert(
             "A".to_string(),
-            Style { based_on: Some("B".to_string()), font: None },
+            Style {
+                based_on: Some("B".to_string()),
+                font: None,
+            },
         );
         s.styles.insert(
             "B".to_string(),
-            Style { based_on: Some("A".to_string()), font: None },
+            Style {
+                based_on: Some("A".to_string()),
+                font: None,
+            },
         );
         assert_eq!(s.resolve_style_font("A"), None);
     }

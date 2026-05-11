@@ -52,6 +52,8 @@ pub fn transliterate_with_audit(input: &str, encoding: Encoding) -> (String, Spa
         s = a.replace(&s);
     }
     s = normalize::ikar_swap(&s);
+    s = normalize::subjoiner_reorder(&s);
+    s = normalize::anusvara_reorder(&s);
     s = normalize::ekar_recombine(&s);
     s = normalize::reph_reorder(&s);
     s = normalize::ya_phala_zwj(&s);

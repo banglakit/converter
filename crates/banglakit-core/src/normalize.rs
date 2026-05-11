@@ -59,7 +59,10 @@ pub fn pre_normalize(input: &str) -> String {
 }
 
 fn is_bengali_consonant(c: char) -> bool {
-    matches!(c, '\u{0995}'..='\u{09B9}' | '\u{09DC}' | '\u{09DD}' | '\u{09DF}' | '\u{09CE}')
+    matches!(
+        c,
+        '\u{0995}'..='\u{09B9}' | '\u{09DC}' | '\u{09DD}' | '\u{09DF}' | '\u{09CE}'
+    )
 }
 
 fn is_prekar(c: char) -> bool {
@@ -71,8 +74,17 @@ fn is_prekar(c: char) -> bool {
 fn is_kar(c: char) -> bool {
     matches!(
         c,
-        AA_KAR | I_KAR | II_KAR | '\u{09C1}' | '\u{09C2}' | '\u{09C3}'
-            | E_KAR | AI_KAR | O_KAR | AU_KAR | TAIL_AU_KAR
+        AA_KAR
+            | I_KAR
+            | II_KAR
+            | '\u{09C1}'
+            | '\u{09C2}'
+            | '\u{09C3}'
+            | E_KAR
+            | AI_KAR
+            | O_KAR
+            | AU_KAR
+            | TAIL_AU_KAR
     )
 }
 
@@ -92,9 +104,7 @@ pub fn reph_reorder(input: &str) -> String {
     let mut text: Vec<char> = input.chars().collect();
     let mut i = 0;
     while i < text.len() {
-        let has_reph_here = i + 1 < text.len()
-            && text[i] == REPH_LEAD_RA
-            && text[i + 1] == HASANTA;
+        let has_reph_here = i + 1 < text.len() && text[i] == REPH_LEAD_RA && text[i + 1] == HASANTA;
         // Look past an optional kar to find the consonant that owns this reph.
         let preceded_by_consonant = (i > 0 && is_bengali_consonant(text[i - 1]))
             || (i >= 2 && is_kar(text[i - 1]) && is_bengali_consonant(text[i - 2]));
@@ -108,10 +118,7 @@ pub fn reph_reorder(input: &str) -> String {
                     break;
                 }
                 let pos = i - j;
-                if pos >= 1
-                    && is_bengali_consonant(text[pos])
-                    && text[pos - 1] == HASANTA
-                {
+                if pos >= 1 && is_bengali_consonant(text[pos]) && text[pos - 1] == HASANTA {
                     // halant + consonant in cluster
                     j += 2;
                     continue;
@@ -170,6 +177,73 @@ pub fn ikar_swap(input: &str) -> String {
     out.into_iter().collect()
 }
 
+/// Move anusvara (ং), visarga (ঃ), and chandrabindu (ঁ) past a following
+/// vowel sign when they appear between a consonant and its vowel.
+///
+/// Bijoy byte order places these after the consonant but before the vowel sign.
+/// Unicode requires: consonant + vowel sign + anusvara. So `কঁা` → `কাঁ`.
+pub fn anusvara_reorder(input: &str) -> String {
+    let chars: Vec<char> = input.chars().collect();
+    let mut out: Vec<char> = Vec::with_capacity(chars.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if is_anusvara_class(chars[i]) && i + 1 < chars.len() && is_kar(chars[i + 1]) {
+            // Swap: emit the vowel sign first, then the anusvara/visarga/chandrabindu
+            let mark = chars[i];
+            out.push(chars[i + 1]);
+            out.push(mark);
+            i += 2;
+            continue;
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out.into_iter().collect()
+}
+
+fn is_anusvara_class(c: char) -> bool {
+    matches!(c, '\u{0982}' | '\u{0983}' | '\u{0981}') // ং ঃ ঁ
+}
+
+/// Move subjoined consonant forms (্র, ্য, ্ব, ্ল, etc.) from after a vowel
+/// sign to before it.
+///
+/// After `ikar_swap`, we may have sequences like `কে্র` (consonant + vowel +
+/// hasanta + consonant). Unicode canonical order requires the subjoined form
+/// before the vowel sign: `ক্রে`. This pass walks the string and whenever it
+/// finds `vowel_sign + ্ + consonant`, swaps them to `্ + consonant + vowel_sign`.
+pub fn subjoiner_reorder(input: &str) -> String {
+    let chars: Vec<char> = input.chars().collect();
+    let mut out: Vec<char> = Vec::with_capacity(chars.len());
+    let mut i = 0;
+    while i < chars.len() {
+        // Pattern: kar + hasanta + consonant → hasanta + consonant + kar
+        if is_kar(chars[i])
+            && i + 2 < chars.len()
+            && chars[i + 1] == HASANTA
+            && is_bengali_consonant(chars[i + 2])
+        {
+            let kar = chars[i];
+            // Collect all hasanta+consonant pairs
+            let mut j = i + 1;
+            while j + 1 < chars.len()
+                && chars[j] == HASANTA
+                && is_bengali_consonant(chars[j + 1])
+            {
+                out.push(chars[j]);
+                out.push(chars[j + 1]);
+                j += 2;
+            }
+            out.push(kar);
+            i = j;
+            continue;
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out.into_iter().collect()
+}
+
 /// Fold split e-kar/o-kar glyphs into the composed vowel signs:
 /// `ে + া` → `ো`; `ে + ৗ` → `ৌ`.
 pub fn ekar_recombine(input: &str) -> String {
@@ -210,8 +284,8 @@ pub fn ya_phala_zwj(input: &str) -> String {
             && chars[i + 1] == HASANTA
             && chars[i + 2] == YA
         {
-            let preceded_by_joiner = !out.is_empty()
-                && matches!(out.last().copied(), Some(ZWJ) | Some(ZWNJ));
+            let preceded_by_joiner =
+                !out.is_empty() && matches!(out.last().copied(), Some(ZWJ) | Some(ZWNJ));
             if !preceded_by_joiner {
                 out.push(REPH_LEAD_RA);
                 out.push(ZWJ);

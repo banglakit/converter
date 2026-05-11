@@ -43,7 +43,10 @@ impl GramAutomaton {
             .match_kind(MatchKind::LeftmostLongest)
             .build(&patterns)
             .expect("aho-corasick build");
-        Some(GramAutomaton { automaton, replacements })
+        Some(GramAutomaton {
+            automaton,
+            replacements,
+        })
     }
 
     /// Run the automaton over `input`, returning the rewritten string.

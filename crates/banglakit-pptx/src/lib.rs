@@ -29,16 +29,10 @@ const SLIDES_SUFFIX: &str = ".xml";
 
 /// Open `in_path`, stream every run through `visitor`, and write the result
 /// to `out_path`. Non-slide zip entries are copied verbatim.
-pub fn process_pptx<V: RunVisitor>(
-    in_path: &Path,
-    out_path: &Path,
-    visitor: &mut V,
-) -> Result<()> {
-    let bytes = std::fs::read(in_path)
-        .with_context(|| format!("opening {}", in_path.display()))?;
+pub fn process_pptx<V: RunVisitor>(in_path: &Path, out_path: &Path, visitor: &mut V) -> Result<()> {
+    let bytes = std::fs::read(in_path).with_context(|| format!("opening {}", in_path.display()))?;
     let out = process_pptx_bytes(&bytes, visitor)?;
-    std::fs::write(out_path, out)
-        .with_context(|| format!("creating {}", out_path.display()))?;
+    std::fs::write(out_path, out).with_context(|| format!("creating {}", out_path.display()))?;
     Ok(())
 }
 
@@ -56,12 +50,10 @@ pub fn process_pptx_bytes<V: RunVisitor>(input: &[u8], visitor: &mut V) -> Resul
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
         let name = entry.name().to_string();
-        let options = SimpleFileOptions::default().compression_method(
-            match entry.compression() {
-                CompressionMethod::Stored => CompressionMethod::Stored,
-                _ => CompressionMethod::Deflated,
-            },
-        );
+        let options = SimpleFileOptions::default().compression_method(match entry.compression() {
+            CompressionMethod::Stored => CompressionMethod::Stored,
+            _ => CompressionMethod::Deflated,
+        });
         zip_out.start_file(&name, options)?;
         if is_slide_xml(&name) {
             let slide_idx = parse_slide_index(&name).unwrap_or(0);
@@ -89,7 +81,9 @@ fn is_slide_xml(name: &str) -> bool {
 
 fn parse_slide_index(name: &str) -> Option<usize> {
     // ppt/slides/slide12.xml -> 12
-    let stem = name.strip_prefix(SLIDES_PREFIX)?.strip_suffix(SLIDES_SUFFIX)?;
+    let stem = name
+        .strip_prefix(SLIDES_PREFIX)?
+        .strip_suffix(SLIDES_SUFFIX)?;
     stem.parse().ok()
 }
 
@@ -238,7 +232,12 @@ fn flush_run<V: RunVisitor>(
         Some(font) => inject_font_if_missing(&rb.events, font),
         None => rb.events.clone(),
     };
-    emit_run_events(writer, &events_to_emit, new_text.as_deref(), new_font.as_deref())?;
+    emit_run_events(
+        writer,
+        &events_to_emit,
+        new_text.as_deref(),
+        new_font.as_deref(),
+    )?;
     if let Some(end) = rb.end_event {
         write_event(writer, &end)?;
     }
@@ -398,7 +397,9 @@ fn inject_font_if_missing(events: &[Event<'static>], font: &str) -> Vec<Event<'s
             Event::End(b) if local_name_bytes(b.name().into_inner()) == b"rPr" => {
                 rpr_end_idx = Some(idx);
             }
-            Event::Empty(b) | Event::Start(b) if local_name_bytes(b.name().into_inner()) == b"latin" => {
+            Event::Empty(b) | Event::Start(b)
+                if local_name_bytes(b.name().into_inner()) == b"latin" =>
+            {
                 has_latin = true;
             }
             _ => {}

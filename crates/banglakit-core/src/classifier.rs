@@ -169,7 +169,9 @@ pub fn classify(
 
     // Stage 4: heuristic scorer.
     let signals = heuristic_features(text, encoding);
-    let logit = signals.iter().fold(BIAS, |acc, s| acc + s.value * weight_for(s.name));
+    let logit = signals
+        .iter()
+        .fold(BIAS, |acc, s| acc + s.value * weight_for(s.name));
     let p = sigmoid(logit);
 
     // Stage 5: threshold policy.
@@ -230,10 +232,22 @@ fn heuristic_features(text: &str, encoding: Encoding) -> Vec<Signal> {
     let english = english_coverage(text);
 
     vec![
-        Signal { name: "high_byte_density", value: high_byte },
-        Signal { name: "distinctive_chars", value: distinctive },
-        Signal { name: "bigram_hits", value: bigram },
-        Signal { name: "english_coverage", value: english },
+        Signal {
+            name: "high_byte_density",
+            value: high_byte,
+        },
+        Signal {
+            name: "distinctive_chars",
+            value: distinctive,
+        },
+        Signal {
+            name: "bigram_hits",
+            value: bigram,
+        },
+        Signal {
+            name: "english_coverage",
+            value: english,
+        },
     ]
 }
 
@@ -318,7 +332,11 @@ mod tests {
             c.decision,
             c.confidence
         );
-        assert!(c.confidence > 0.50, "p={} too low for Bijoy text", c.confidence);
+        assert!(
+            c.confidence > 0.50,
+            "p={} too low for Bijoy text",
+            c.confidence
+        );
     }
 
     #[test]
@@ -331,7 +349,10 @@ mod tests {
 
     #[test]
     fn decision_as_str_and_encoding() {
-        assert_eq!(Decision::AnsiBengali(Encoding::Bijoy).as_str(), "ansi_bengali");
+        assert_eq!(
+            Decision::AnsiBengali(Encoding::Bijoy).as_str(),
+            "ansi_bengali"
+        );
         assert_eq!(Decision::UnicodeBengali.as_str(), "unicode_bengali");
         assert_eq!(Decision::Latin.as_str(), "latin");
         assert_eq!(Decision::Ambiguous.as_str(), "ambiguous");
