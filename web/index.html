@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>banglakit-converter — Bijoy → Unicode Bengali</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>banglakit-converter</h1>
+      <p class="tagline">
+        Lossless Bijoy → Unicode Bengali. All conversion runs in your browser —
+        files never leave this page.
+      </p>
+      <span class="pill" id="version">loading WASM…</span>
+    </header>
+
+    <section class="controls">
+      <label>
+        mode:
+        <select id="mode">
+          <option value="safe" selected>safe (≥ 0.95)</option>
+          <option value="aggressive">aggressive (≥ 0.85)</option>
+        </select>
+      </label>
+      <label>
+        target font:
+        <select id="unicodeFont">
+          <option>Kalpurush</option>
+          <option>Nikosh</option>
+          <option>SolaimanLipi</option>
+          <option>Noto Sans Bengali</option>
+        </select>
+      </label>
+    </section>
+
+    <section>
+      <h2>Convert a file</h2>
+      <div id="dropzone" class="dropzone" tabindex="0">
+        <p><strong>Drop a .docx, .pptx, or .txt file here</strong></p>
+        <p class="hint">or</p>
+        <label class="filebtn">
+          <input type="file" id="filepicker" accept=".docx,.pptx,.txt,.md,text/plain" />
+          Choose a file
+        </label>
+      </div>
+      <div id="filestatus" class="status" hidden></div>
+    </section>
+
+    <section>
+      <h2>…or paste text</h2>
+      <div class="row">
+        <div>
+          <label for="textin">input (Bijoy)</label>
+          <textarea id="textin" spellcheck="false">Avwg evsjvq Mvb MvB|
+Gas price is $5 today.
+ÒAviv eyS‡Z cv‡imÓ</textarea>
+        </div>
+        <div>
+          <label for="textout">output</label>
+          <div id="textout" class="out"></div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <p>
+        <a href="https://github.com/banglakit/converter">banglakit/converter</a>
+        — built with Rust + WebAssembly.
+      </p>
+    </footer>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

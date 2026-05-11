@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  wasm-check:
+    name: cargo check (wasm32)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm32
+      - run: cargo check --target wasm32-unknown-unknown -p banglakit-wasm
+
+  release-cli:
+    name: release CLI (linux-x86_64)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [test, wasm-check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+      - run: cargo build --release -p banglakit-cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: banglakit-converter-linux-x86_64
+          path: target/release/banglakit-converter
+          if-no-files-found: error

@@ -20,7 +20,6 @@ use quick_xml::events::attributes::Attribute;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::{Reader, Writer};
 use std::borrow::Cow;
-use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
@@ -35,13 +34,21 @@ pub fn process_pptx<V: RunVisitor>(
     out_path: &Path,
     visitor: &mut V,
 ) -> Result<()> {
-    let file = File::open(in_path)
+    let bytes = std::fs::read(in_path)
         .with_context(|| format!("opening {}", in_path.display()))?;
-    let mut archive = ZipArchive::new(file)?;
-
-    let out_file = File::create(out_path)
+    let out = process_pptx_bytes(&bytes, visitor)?;
+    std::fs::write(out_path, out)
         .with_context(|| format!("creating {}", out_path.display()))?;
-    let mut zip_out = ZipWriter::new(out_file);
+    Ok(())
+}
+
+/// In-memory variant of [`process_pptx`]. Takes the raw PPTX zip bytes and
+/// returns the converted PPTX bytes. Used by `banglakit-wasm` so the browser
+/// can round-trip a `.pptx` deck entirely client-side.
+pub fn process_pptx_bytes<V: RunVisitor>(input: &[u8], visitor: &mut V) -> Result<Vec<u8>> {
+    let mut archive = ZipArchive::new(Cursor::new(input))?;
+
+    let mut zip_out = ZipWriter::new(Cursor::new(Vec::<u8>::new()));
 
     // Single-pass: for each input entry, transform-and-write if it's a slide
     // XML, otherwise copy through. Peak in-memory slide XML is one slide,
@@ -66,8 +73,8 @@ pub fn process_pptx<V: RunVisitor>(
             std::io::copy(&mut entry, &mut zip_out)?;
         }
     }
-    zip_out.finish()?;
-    Ok(())
+    let cursor = zip_out.finish()?;
+    Ok(cursor.into_inner())
 }
 
 fn is_slide_xml(name: &str) -> bool {

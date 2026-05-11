@@ -16,7 +16,8 @@
 //! exposed so callers can build their own policies on top of the primitives.
 
 use banglakit_core::{
-    classify, convert_run, transliterate, ConvertOptions, Decision, Encoding, Mode, Stage,
+    classify, convert_run, transliterate, ConvertOptions, Decision, DefaultRunVisitor, Encoding,
+    Mode, Stage,
 };
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
@@ -189,6 +190,98 @@ pub fn convert_run_js(
 #[wasm_bindgen(js_name = coreVersion)]
 pub fn core_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[derive(Serialize)]
+struct FileConversionJs {
+    bytes: Vec<u8>,
+    any_change: bool,
+    runs_converted: usize,
+}
+
+#[derive(Serialize)]
+struct TextConversionJs {
+    text: String,
+    changed: bool,
+    runs_converted: usize,
+}
+
+fn build_opts(
+    encoding: Option<String>,
+    mode: Option<String>,
+    unicode_font: Option<String>,
+) -> Result<ConvertOptions<'static>, JsError> {
+    let enc = parse_encoding(encoding).map_err(|e| JsError::new(&e))?;
+    let m = parse_mode(mode).map_err(|e| JsError::new(&e))?;
+    let target_font = parse_unicode_font(unicode_font).map_err(|e| JsError::new(&e))?;
+    Ok(ConvertOptions {
+        encoding: enc,
+        mode: m,
+        threshold: None,
+        unicode_font: target_font,
+    })
+}
+
+/// Convert an in-memory `.docx` file. Takes the raw zip bytes and returns
+/// `{ bytes, anyChange, runsConverted }`. The returned `bytes` are a fresh
+/// DOCX the caller can wrap in a `Blob` and offer as a download.
+#[wasm_bindgen(js_name = convertDocx)]
+pub fn convert_docx(
+    bytes: &[u8],
+    mode: Option<String>,
+    encoding: Option<String>,
+    unicode_font: Option<String>,
+) -> Result<JsValue, JsError> {
+    let opts = build_opts(encoding, mode, unicode_font)?;
+    let mut visitor = DefaultRunVisitor::new(opts);
+    let out = banglakit_docx::process_docx_bytes(bytes, &mut visitor)
+        .map_err(|e| JsError::new(&format!("{e:#}")))?;
+    let result = FileConversionJs {
+        bytes: out,
+        any_change: visitor.any_change,
+        runs_converted: visitor.runs_converted,
+    };
+    serde_wasm_bindgen::to_value(&result).map_err(JsError::from)
+}
+
+/// Convert an in-memory `.pptx` deck. Same return shape as [`convert_docx`].
+#[wasm_bindgen(js_name = convertPptx)]
+pub fn convert_pptx(
+    bytes: &[u8],
+    mode: Option<String>,
+    encoding: Option<String>,
+    unicode_font: Option<String>,
+) -> Result<JsValue, JsError> {
+    let opts = build_opts(encoding, mode, unicode_font)?;
+    let mut visitor = DefaultRunVisitor::new(opts);
+    let out = banglakit_pptx::process_pptx_bytes(bytes, &mut visitor)
+        .map_err(|e| JsError::new(&format!("{e:#}")))?;
+    let result = FileConversionJs {
+        bytes: out,
+        any_change: visitor.any_change,
+        runs_converted: visitor.runs_converted,
+    };
+    serde_wasm_bindgen::to_value(&result).map_err(JsError::from)
+}
+
+/// Convert a plain-text blob — treats the whole input as one run, runs the
+/// classifier, and returns `{ text, changed, runsConverted }` (with
+/// `runsConverted` always 0 or 1, mirroring the DOCX/PPTX surface).
+#[wasm_bindgen(js_name = convertText)]
+pub fn convert_text(
+    text: &str,
+    mode: Option<String>,
+    encoding: Option<String>,
+    unicode_font: Option<String>,
+) -> Result<JsValue, JsError> {
+    let opts = build_opts(encoding, mode, unicode_font)?;
+    let r = convert_run(text, None, &opts);
+    let result = TextConversionJs {
+        text: r.text,
+        changed: r.changed,
+        runs_converted: if r.changed { 1 } else { 0 },
+    };
+    serde_wasm_bindgen::to_value(&result).map_err(JsError::from)
 }
 
 #[cfg(test)]

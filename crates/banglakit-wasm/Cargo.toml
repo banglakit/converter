@@ -10,8 +10,19 @@ description = "WebAssembly bindings for banglakit-core (Bijoy → Unicode Bengal
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[package.metadata.wasm-pack.profile.release]
+# `wasm-pack` tries to download a prebuilt binaryen (`wasm-opt`) from GitHub
+# Releases at build time. That breaks in air-gapped CI runners and any
+# environment that can't reach github.com from the build host. Keep this
+# `false` and let the Pages workflow run `wasm-opt -Oz` as a separate,
+# optional step (with binaryen installed via apt) if/when we want to chase
+# the last 50–100 KB of wasm size.
+wasm-opt = false
+
 [dependencies]
 banglakit-core = { path = "../banglakit-core" }
+banglakit-docx = { path = "../banglakit-docx" }
+banglakit-pptx = { path = "../banglakit-pptx" }
 wasm-bindgen = "0.2"
 serde = { workspace = true }
 serde-wasm-bindgen = "0.6"
