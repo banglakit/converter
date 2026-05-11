@@ -16,11 +16,13 @@ This release ships:
 - A pure-Rust core (`banglakit-core`) — transliterator + classifier with no
   I/O dependencies. Hosts the shared `RunRef` / `RunVisitor` types used by
   every format adapter.
-- A DOCX adapter (`banglakit-docx`) with full OOXML style cascade
-  resolution: a run inherits its font from `pPr/rPr`, then the paragraph
-  style chain (`pStyle` → `basedOn` → default paragraph style), then
-  `docDefaults`. When a converted run has no `w:rFonts`, one is injected so
-  the new font survives.
+- A DOCX adapter (`banglakit-docx`) with full OOXML font resolution: a
+  run inherits its font from `pPr/rPr`, then the paragraph style chain
+  (`pStyle` → `basedOn` → default paragraph style), then `docDefaults`.
+  Each `<w:rFonts>` element is theme-aware: `w:asciiTheme="minorHAnsi"`
+  references resolve through `word/theme/theme1.xml`, which is what
+  modern Word output uses for its default font. When a converted run has
+  no `w:rFonts`, one is injected so the new font survives.
 - A PPTX adapter (`banglakit-pptx`) that walks every `ppt/slides/slideN.xml`
   and rewrites `<a:r>` runs in place. Slide masters, layouts, theme, and
   media are copied byte-for-byte.
@@ -224,12 +226,9 @@ These items are documented in the PRD/SDD and deferred:
 - Trained logistic-regression / fastText LID fallback (Stage 5 of SDD §4).
   Replaced with a rule-based weighted-sum sigmoid using PRD-documented
   per-feature thresholds.
-- PPTX style cascade (shape → layout → master → theme). v0.2 reads
-  run-level fonts only; missing-font runs fall through to heuristic
+- PPTX style cascade (shape → layout → master → theme). The PPTX adapter
+  reads run-level fonts only; missing-font runs fall through to heuristic
   scoring. Theme-font references like `+mn-lt` are also not resolved.
-- DOCX theme-font resolution. The DOCX style cascade handles direct
-  `w:rFonts/@w:ascii` declarations but not the theme-indirect
-  `w:asciiTheme="minorHAnsi"` form used by modern Word.
 - DOCX / PPTX `--dry-run`.
 
 ## Acknowledgements & licenses

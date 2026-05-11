@@ -97,6 +97,60 @@ fn plain_text_canonical_sample() {
 }
 
 #[test]
+fn docx_cascade_resolves_font_from_theme() {
+    // Fixture: a paragraph style "ThemedBijoy" declares only
+    // `w:rFonts w:asciiTheme="minorHAnsi"`. The actual font name lives in
+    // word/theme/theme1.xml (minorFont/latin = "SutonnyMJ"). v0.2's
+    // cascade missed this case; v0.3's theme-aware resolver picks it up
+    // at the AnsiFont stage with confidence 0.99.
+    let fixture = workspace_root().join("tests/fixtures/themed.docx");
+    assert!(fixture.exists(), "missing fixture {}", fixture.display());
+
+    let out = tempfile("docx_themed_out", ".docx");
+    let audit = tempfile("docx_themed_audit", ".jsonl");
+
+    let status = Command::new(binary_path())
+        .arg("-i")
+        .arg(&fixture)
+        .arg("-o")
+        .arg(&out)
+        .arg("--audit")
+        .arg(&audit)
+        .status()
+        .expect("spawn CLI");
+    assert_eq!(status.code(), Some(1), "expected changes (exit 1)");
+
+    let bytes = std::fs::read(&out).expect("read output");
+    let xml = unzip_document_xml(&bytes);
+    assert!(
+        xml.contains("আমি বাংলায়"),
+        "Bijoy run not converted: {xml}"
+    );
+    assert!(xml.contains("Kalpurush"), "font swap missed");
+    assert!(
+        xml.contains("Source: Daily Star"),
+        "English run mutated: {xml}"
+    );
+
+    // Audit must show the Bijoy run was caught at the AnsiFont stage,
+    // not the Heuristic fallback — that's the whole point of theme
+    // resolution.
+    let audit_text = std::fs::read_to_string(&audit).expect("read audit");
+    let lines: Vec<&str> = audit_text.lines().filter(|l| !l.is_empty()).collect();
+    assert!(
+        lines[0].contains("\"stage\":\"ansi_font\""),
+        "expected AnsiFont stage, audit: {lines:?}"
+    );
+    assert!(
+        lines[0].contains("\"font_name\":\"SutonnyMJ\""),
+        "expected SutonnyMJ resolved via theme, audit: {lines:?}"
+    );
+
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(&audit);
+}
+
+#[test]
 fn docx_cascade_resolves_font_from_paragraph_style() {
     // Fixture: the Bijoy run carries no font of its own; SutonnyMJ lives on
     // the paragraph style "BijoyBody". This exercises v0.2 cascade
