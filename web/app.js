@@ -134,7 +134,10 @@ function wireTextarea() {
   );
   $("mode").addEventListener("change", render);
   $("unicodeFont").addEventListener("change", render);
-  $("autoMatchFonts").addEventListener("change", render);
+  $("autoMatchFonts").addEventListener("change", () => {
+    $("unicodeFont").disabled = $("autoMatchFonts").checked;
+    render();
+  });
   render();
 }
 
