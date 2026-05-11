@@ -128,8 +128,17 @@ crates/
 │       ├── fonts.rs              # Font allowlist matching
 │       └── english.rs            # English dictionary feature
 ├── banglakit-docx/        # DOCX zip + quick-xml adapter
-└── banglakit-cli/         # `banglakit-converter` binary
+├── banglakit-cli/         # `banglakit-converter` binary
+└── banglakit-wasm/        # wasm-bindgen surface for browsers / Office Add-ins
 ```
+
+## Office Add-in path
+
+For the Word / Excel / PowerPoint Add-in roadmap, the WASM bindings, and a
+scaffold of the Word task-pane project, see
+[`docs/PATH-TO-OFFICE-ADDINS.md`](docs/PATH-TO-OFFICE-ADDINS.md). The browser
+demo lives at [`examples/wasm-demo/`](examples/wasm-demo/) and the Office
+scaffold at [`examples/word-addin/`](examples/word-addin/).
 
 ## Extending to other ANSI encodings
 
@@ -149,7 +158,8 @@ changes are required.
 These items are documented in the PRD/SDD and deferred:
 
 - Python wheel via PyO3/maturin.
-- WASM build, npm package, mobile (UniFFI) bindings.
+- ~~WASM build~~ — see `crates/banglakit-wasm/` (Stage 1 of the Office
+  Add-in path). npm package and mobile (UniFFI) bindings still deferred.
 - PPTX, RTF, HTML, PDF, clipboard adapters.
 - ANSI encoding families beyond Bijoy.
 - Trained logistic-regression / fastText LID fallback (Stage 5 of SDD §4).

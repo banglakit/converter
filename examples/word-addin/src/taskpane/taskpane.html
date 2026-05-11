@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <title>Banglakit Converter</title>
+    <script
+      type="text/javascript"
+      src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"
+    ></script>
+    <link rel="stylesheet" href="taskpane.css" />
+  </head>
+  <body class="ms-font-m ms-welcome ms-Fabric">
+    <header>
+      <h1 class="ms-font-xl">Banglakit Converter</h1>
+      <p class="ms-font-s">Bijoy / SutonnyMJ → Unicode Bengali, font-aware.</p>
+    </header>
+
+    <main>
+      <label class="ms-font-s">
+        Mode
+        <select id="mode">
+          <option value="safe" selected>safe (≥ 0.95)</option>
+          <option value="aggressive">aggressive (≥ 0.85)</option>
+        </select>
+      </label>
+      <label class="ms-font-s">
+        Target Unicode font
+        <select id="unicodeFont">
+          <option>Kalpurush</option>
+          <option>Nikosh</option>
+          <option>SolaimanLipi</option>
+          <option>Noto Sans Bengali</option>
+        </select>
+      </label>
+
+      <button id="convert" class="ms-Button ms-Button--primary">
+        <span class="ms-Button-label">Convert document</span>
+      </button>
+      <button id="convertSelection" class="ms-Button">
+        <span class="ms-Button-label">Convert selection only</span>
+      </button>
+
+      <div id="status" class="ms-font-s" role="status"></div>
+    </main>
+
+    <script src="taskpane.js"></script>
+  </body>
+</html>
