@@ -42,3 +42,41 @@ impl<F: FnMut(RunRef<'_>) -> RunAction> RunVisitor for F {
         (self)(run)
     }
 }
+
+use crate::policy::{convert_run, ConvertOptions};
+
+/// The default classify-then-transliterate visitor used by every host that
+/// has no audit/explain plumbing of its own (WASM bindings, future
+/// LibreOffice / Apache OpenOffice connector, anyone embedding the adapter
+/// crates directly).
+///
+/// The CLI keeps its own visitor in `banglakit-cli/src/main.rs` because that
+/// one also writes per-run JSONL audit entries and `--explain` output to
+/// stderr; both are concerns that have no place in `banglakit-core`.
+pub struct DefaultRunVisitor<'a> {
+    pub opts: ConvertOptions<'a>,
+    pub any_change: bool,
+    pub runs_converted: usize,
+}
+
+impl<'a> DefaultRunVisitor<'a> {
+    pub fn new(opts: ConvertOptions<'a>) -> Self {
+        Self { opts, any_change: false, runs_converted: 0 }
+    }
+}
+
+impl<'a> RunVisitor for DefaultRunVisitor<'a> {
+    fn visit(&mut self, run: RunRef<'_>) -> RunAction {
+        let r = convert_run(run.text, run.font_name, &self.opts);
+        if r.changed {
+            self.any_change = true;
+            self.runs_converted += 1;
+            RunAction::Replace {
+                new_text: r.text,
+                new_font: r.font.map(str::to_string),
+            }
+        } else {
+            RunAction::Keep
+        }
+    }
+}

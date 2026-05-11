@@ -23,7 +23,6 @@ use quick_xml::events::attributes::Attribute;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::{Reader, Writer};
 use std::borrow::Cow;
-use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
@@ -43,9 +42,19 @@ pub fn process_docx<V: RunVisitor>(
     out_path: &Path,
     visitor: &mut V,
 ) -> Result<()> {
-    let file = File::open(in_path)
+    let bytes = std::fs::read(in_path)
         .with_context(|| format!("opening {}", in_path.display()))?;
-    let mut archive = ZipArchive::new(file)?;
+    let out = process_docx_bytes(&bytes, visitor)?;
+    std::fs::write(out_path, out)
+        .with_context(|| format!("creating {}", out_path.display()))?;
+    Ok(())
+}
+
+/// In-memory variant of [`process_docx`]. Takes the raw DOCX zip bytes and
+/// returns the converted DOCX bytes. Used by `banglakit-wasm` so the browser
+/// can round-trip a `.docx` file entirely client-side.
+pub fn process_docx_bytes<V: RunVisitor>(input: &[u8], visitor: &mut V) -> Result<Vec<u8>> {
+    let mut archive = ZipArchive::new(Cursor::new(input))?;
 
     let mut document_xml = String::new();
     {
@@ -77,9 +86,7 @@ pub fn process_docx<V: RunVisitor>(
     let new_document_xml =
         transform_document_xml(&document_xml, &stylesheet, Some(&theme), visitor)?;
 
-    let out_file = File::create(out_path)
-        .with_context(|| format!("creating {}", out_path.display()))?;
-    let mut zip_out = ZipWriter::new(out_file);
+    let mut zip_out = ZipWriter::new(Cursor::new(Vec::<u8>::new()));
 
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
@@ -96,8 +103,8 @@ pub fn process_docx<V: RunVisitor>(
             std::io::copy(&mut entry, &mut zip_out)?;
         }
     }
-    zip_out.finish()?;
-    Ok(())
+    let cursor = zip_out.finish()?;
+    Ok(cursor.into_inner())
 }
 
 #[derive(Default, Clone)]

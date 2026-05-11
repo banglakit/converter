@@ -134,6 +134,8 @@ name = "banglakit-wasm"
 version = "0.2.0"
 dependencies = [
  "banglakit-core",
+ "banglakit-docx",
+ "banglakit-pptx",
  "serde",
  "serde-wasm-bindgen",
  "wasm-bindgen",
