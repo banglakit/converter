@@ -1,0 +1,28 @@
+# Bijoy-family ANSI Bengali font names.
+# Match is case-insensitive substring; an *MJ-suffix fallback rule in
+# fonts.rs catches the long tail of named variants not enumerated here.
+# Sources: hindityping.info Bangla font list, omicronlab font catalogue,
+# Mad-FOX/bijoy2unicode README. PRD §6 enumerates 128+ variants; only the
+# most-cited families are listed by name here, with the *MJ-suffix rule
+# covering the rest.
+
+ansi_fonts = [
+    "SutonnyMJ",
+    "SutonnyOMJ",
+    "AdorshoLipi",
+    "AdorshoLipiMJ",
+    "JugantorMJ",
+    "NikoshMJ",
+    "SulekhaMJ",
+    "BengaliMJ",
+    "BorhanMJ",
+    "ProkashMJ",
+    "ProthomaMJ",
+    "RinkiyaMJ",
+    "ShiblyMJ",
+    "ShimantoMJ",
+    "ShobujMJ",
+    "StyleMJ",
+    "TaranginiMJ",
+    "ChandrabatiMJ",
+]

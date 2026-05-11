@@ -1,0 +1,24 @@
+[package]
+name = "banglakit-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "CLI front-end for the banglakit-converter."
+
+[[bin]]
+name = "banglakit-converter"
+path = "src/main.rs"
+
+[dependencies]
+banglakit-core = { path = "../banglakit-core" }
+banglakit-docx = { path = "../banglakit-docx" }
+clap.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+
+[dev-dependencies]
+zip.workspace = true
