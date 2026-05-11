@@ -9,13 +9,17 @@
 //!    `w:type="paragraph"`), typically `Normal`.
 //! 5. `<w:docDefaults>/<w:rPrDefault>/<w:rPr>/<w:rFonts>`.
 //!
-//! All other style types (character, table, numbering) are ignored in v0.2;
-//! they could be added to `Style` later by recording `w:type`.
+//! Each `<w:rFonts>` we read goes through [`crate::theme::font_from_rfonts`],
+//! so theme references (`w:asciiTheme="minorHAnsi"`) resolve when a
+//! [`Theme`] is supplied.
 
 use anyhow::{anyhow, Result};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 use std::collections::HashMap;
+
+use crate::theme::{font_from_rfonts, Theme};
+use crate::{local_name_bytes, local_name_bytes_of};
 
 /// One named style: its font and its `basedOn` parent.
 #[derive(Debug, Default, Clone)]
@@ -82,9 +86,14 @@ impl Stylesheet {
 
 /// Parse a `word/styles.xml` source string into a [`Stylesheet`].
 ///
-/// Returns `Ok(Default::default())` if the input is empty or has no
-/// recognized elements. Returns `Err` only on hard XML parse failure.
-pub fn parse_styles(xml: &str) -> Result<Stylesheet> {
+/// `theme` is optional: pass `Some(&theme)` when `word/theme/theme1.xml`
+/// is available to resolve `w:asciiTheme` / `w:hAnsiTheme` references in
+/// rFonts elements; pass `None` to leave theme-only references unresolved
+/// (matches the v0.2 behaviour for files without theme1.xml).
+///
+/// Returns `Ok(Default::default())` if the input is empty. Returns `Err`
+/// only on hard XML parse failure.
+pub fn parse_styles(xml: &str, theme: Option<&Theme>) -> Result<Stylesheet> {
     if xml.trim().is_empty() {
         return Ok(Stylesheet::default());
     }
@@ -108,28 +117,28 @@ pub fn parse_styles(xml: &str) -> Result<Stylesheet> {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Eof) => break,
             Ok(event) => {
-                let local = local_name(&event);
-                match (&event, local.as_deref()) {
-                    (Event::Start(_), Some("docDefaults")) => {
+                let local = local_name_bytes_of(&event);
+                match (&event, local) {
+                    (Event::Start(_), Some(b"docDefaults")) => {
                         doc_defaults_depth += 1;
                     }
-                    (Event::End(_), Some("docDefaults")) => {
+                    (Event::End(_), Some(b"docDefaults")) => {
                         doc_defaults_depth = doc_defaults_depth.saturating_sub(1);
                     }
-                    (Event::Start(_), Some("rPrDefault")) if doc_defaults_depth > 0 => {
+                    (Event::Start(_), Some(b"rPrDefault")) if doc_defaults_depth > 0 => {
                         in_doc_defaults_rpr_default = true;
                     }
-                    (Event::End(_), Some("rPrDefault")) => {
+                    (Event::End(_), Some(b"rPrDefault")) => {
                         in_doc_defaults_rpr_default = false;
                     }
-                    (Event::Start(b), Some("style")) => {
+                    (Event::Start(b), Some(b"style")) => {
                         let style_id = attr(b, b"styleId").unwrap_or_default();
                         let ty = attr(b, b"type").unwrap_or_default();
                         let is_default = attr(b, b"default").as_deref() == Some("1");
                         current_style =
                             Some((style_id, Style::default(), is_default && ty == "paragraph"));
                     }
-                    (Event::End(_), Some("style")) => {
+                    (Event::End(_), Some(b"style")) => {
                         if let Some((id, style, is_default_para)) = current_style.take() {
                             if !id.is_empty() {
                                 if is_default_para && sheet.default_paragraph_style.is_none() {
@@ -139,21 +148,22 @@ pub fn parse_styles(xml: &str) -> Result<Stylesheet> {
                             }
                         }
                     }
-                    (Event::Empty(b), Some("basedOn")) | (Event::Start(b), Some("basedOn")) => {
+                    (Event::Empty(b), Some(b"basedOn"))
+                    | (Event::Start(b), Some(b"basedOn")) => {
                         if let Some((_, style, _)) = current_style.as_mut() {
                             style.based_on = attr(b, b"val");
                         }
                     }
-                    (Event::Start(_), Some("rPr")) => {
+                    (Event::Start(_), Some(b"rPr")) => {
                         in_rpr += 1;
                     }
-                    (Event::End(_), Some("rPr")) => {
+                    (Event::End(_), Some(b"rPr")) => {
                         in_rpr = in_rpr.saturating_sub(1);
                     }
-                    (Event::Empty(b), Some("rFonts")) | (Event::Start(b), Some("rFonts"))
+                    (Event::Empty(b), Some(b"rFonts")) | (Event::Start(b), Some(b"rFonts"))
                         if in_rpr > 0 =>
                     {
-                        let font = font_from_rfonts(b);
+                        let font = font_from_rfonts(b, theme);
                         if in_doc_defaults_rpr_default && sheet.default_font.is_none() {
                             sheet.default_font = font;
                         } else if let Some((_, style, _)) = current_style.as_mut() {
@@ -173,39 +183,16 @@ pub fn parse_styles(xml: &str) -> Result<Stylesheet> {
     Ok(sheet)
 }
 
-fn local_name(event: &Event<'_>) -> Option<String> {
-    let bytes = match event {
-        Event::Start(b) | Event::Empty(b) => b.name().into_inner().to_vec(),
-        Event::End(b) => b.name().into_inner().to_vec(),
-        _ => return None,
-    };
-    let s = String::from_utf8(bytes).ok()?;
-    Some(match s.rsplit_once(':') {
-        Some((_, local)) => local.to_string(),
-        None => s,
-    })
-}
-
-fn attr(b: &BytesStart<'_>, want_local: &[u8]) -> Option<String> {
+/// Look up an attribute by *local* name (namespace prefix stripped) and
+/// return its unescaped value as an owned String.
+pub(crate) fn attr(b: &BytesStart<'_>, want_local: &[u8]) -> Option<String> {
     for a in b.attributes().with_checks(false).flatten() {
         let key = a.key.into_inner();
-        let local = local_name_bytes(key);
-        if local == want_local {
+        if local_name_bytes(key) == want_local {
             return a.unescape_value().ok().map(|v| v.into_owned());
         }
     }
     None
-}
-
-fn font_from_rfonts(b: &BytesStart<'_>) -> Option<String> {
-    attr(b, b"ascii").or_else(|| attr(b, b"hAnsi"))
-}
-
-fn local_name_bytes(name: &[u8]) -> &[u8] {
-    match name.iter().rposition(|&b| b == b':') {
-        Some(idx) => &name[idx + 1..],
-        None => name,
-    }
 }
 
 #[cfg(test)]
@@ -249,34 +236,32 @@ mod tests {
 
     #[test]
     fn parses_doc_defaults() {
-        let s = parse_styles(STYLES_XML).unwrap();
+        let s = parse_styles(STYLES_XML, None).unwrap();
         assert_eq!(s.default_font.as_deref(), Some("Calibri"));
     }
 
     #[test]
     fn parses_default_paragraph_style_id() {
-        let s = parse_styles(STYLES_XML).unwrap();
+        let s = parse_styles(STYLES_XML, None).unwrap();
         assert_eq!(s.default_paragraph_style.as_deref(), Some("Normal"));
     }
 
     #[test]
     fn resolves_style_font_directly() {
-        let s = parse_styles(STYLES_XML).unwrap();
+        let s = parse_styles(STYLES_XML, None).unwrap();
         assert_eq!(s.resolve_style_font("Normal"), Some("Times New Roman"));
         assert_eq!(s.resolve_style_font("BijoyBody"), Some("SutonnyMJ"));
     }
 
     #[test]
     fn resolves_via_based_on_chain() {
-        let s = parse_styles(STYLES_XML).unwrap();
-        // UnstyledChild has no font of its own; based_on=BijoyBody resolves
-        // to SutonnyMJ.
+        let s = parse_styles(STYLES_XML, None).unwrap();
         assert_eq!(s.resolve_style_font("UnstyledChild"), Some("SutonnyMJ"));
     }
 
     #[test]
     fn cascade_run_font_wins() {
-        let s = parse_styles(STYLES_XML).unwrap();
+        let s = parse_styles(STYLES_XML, None).unwrap();
         assert_eq!(
             s.resolve_run_font(Some("Direct"), Some("Para"), Some("Normal")),
             Some("Direct")
@@ -285,7 +270,7 @@ mod tests {
 
     #[test]
     fn cascade_paragraph_default_runs_second() {
-        let s = parse_styles(STYLES_XML).unwrap();
+        let s = parse_styles(STYLES_XML, None).unwrap();
         assert_eq!(
             s.resolve_run_font(None, Some("Para"), Some("Normal")),
             Some("Para")
@@ -294,7 +279,7 @@ mod tests {
 
     #[test]
     fn cascade_paragraph_style_runs_third() {
-        let s = parse_styles(STYLES_XML).unwrap();
+        let s = parse_styles(STYLES_XML, None).unwrap();
         assert_eq!(
             s.resolve_run_font(None, None, Some("BijoyBody")),
             Some("SutonnyMJ")
@@ -303,13 +288,12 @@ mod tests {
 
     #[test]
     fn cascade_default_paragraph_style_runs_fourth() {
-        let s = parse_styles(STYLES_XML).unwrap();
+        let s = parse_styles(STYLES_XML, None).unwrap();
         assert_eq!(s.resolve_run_font(None, None, None), Some("Times New Roman"));
     }
 
     #[test]
     fn cascade_doc_defaults_run_last() {
-        // Sheet with only docDefaults, no styles.
         let xml = r#"<?xml version="1.0"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:docDefaults>
@@ -320,20 +304,19 @@ mod tests {
     </w:rPrDefault>
   </w:docDefaults>
 </w:styles>"#;
-        let s = parse_styles(xml).unwrap();
+        let s = parse_styles(xml, None).unwrap();
         assert_eq!(s.resolve_run_font(None, None, None), Some("OnlyDefault"));
     }
 
     #[test]
     fn empty_xml_yields_empty_sheet() {
-        let s = parse_styles("").unwrap();
+        let s = parse_styles("", None).unwrap();
         assert!(s.styles.is_empty());
         assert!(s.default_font.is_none());
     }
 
     #[test]
     fn cycle_guard_does_not_loop() {
-        // Manually inject a cyclic style and verify resolution terminates.
         let mut s = Stylesheet::default();
         s.styles.insert(
             "A".to_string(),
@@ -344,5 +327,29 @@ mod tests {
             Style { based_on: Some("A".to_string()), font: None },
         );
         assert_eq!(s.resolve_style_font("A"), None);
+    }
+
+    #[test]
+    fn theme_token_resolves_to_minor_font() {
+        // Styles.xml uses theme-only rFonts; theme1.xml provides the font.
+        let styles_xml = r#"<?xml version="1.0"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:docDefaults>
+    <w:rPrDefault>
+      <w:rPr>
+        <w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/>
+      </w:rPr>
+    </w:rPrDefault>
+  </w:docDefaults>
+</w:styles>"#;
+        let theme_xml = r#"<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <a:themeElements><a:fontScheme>
+    <a:minorFont><a:latin typeface="SutonnyMJ"/></a:minorFont>
+    <a:majorFont><a:latin typeface="Calibri Light"/></a:majorFont>
+  </a:fontScheme></a:themeElements>
+</a:theme>"#;
+        let theme = crate::theme::parse_theme(theme_xml).unwrap();
+        let s = parse_styles(styles_xml, Some(&theme)).unwrap();
+        assert_eq!(s.default_font.as_deref(), Some("SutonnyMJ"));
     }
 }

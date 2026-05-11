@@ -39,36 +39,13 @@ pub fn process_pptx<V: RunVisitor>(
         .with_context(|| format!("opening {}", in_path.display()))?;
     let mut archive = ZipArchive::new(file)?;
 
-    // Identify slide XMLs and capture their indices in order.
-    let mut slide_entries: Vec<(usize, String)> = Vec::new();
-    let mut transformed: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
-
-    for i in 0..archive.len() {
-        let entry = archive.by_index(i)?;
-        let name = entry.name().to_string();
-        if is_slide_xml(&name) {
-            let slide_idx = parse_slide_index(&name).unwrap_or(0);
-            slide_entries.push((slide_idx, name));
-        }
-    }
-    // Sort by slide index so visitor sees slides 1, 2, 3, … in order.
-    slide_entries.sort_by_key(|(idx, _)| *idx);
-
-    for (slide_idx, name) in &slide_entries {
-        let mut entry = archive
-            .by_name(name)
-            .with_context(|| format!("reading slide entry {name}"))?;
-        let mut xml = String::new();
-        entry.read_to_string(&mut xml)?;
-        let new_xml = transform_slide_xml(&xml, *slide_idx, visitor)?;
-        transformed.insert(name.clone(), new_xml);
-    }
-
     let out_file = File::create(out_path)
         .with_context(|| format!("creating {}", out_path.display()))?;
     let mut zip_out = ZipWriter::new(out_file);
 
+    // Single-pass: for each input entry, transform-and-write if it's a slide
+    // XML, otherwise copy through. Peak in-memory slide XML is one slide,
+    // not the whole deck.
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
         let name = entry.name().to_string();
@@ -79,7 +56,11 @@ pub fn process_pptx<V: RunVisitor>(
             },
         );
         zip_out.start_file(&name, options)?;
-        if let Some(new_xml) = transformed.get(&name) {
+        if is_slide_xml(&name) {
+            let slide_idx = parse_slide_index(&name).unwrap_or(0);
+            let mut xml = String::new();
+            entry.read_to_string(&mut xml)?;
+            let new_xml = transform_slide_xml(&xml, slide_idx, visitor)?;
             zip_out.write_all(new_xml.as_bytes())?;
         } else {
             std::io::copy(&mut entry, &mut zip_out)?;
@@ -124,47 +105,44 @@ fn transform_slide_xml<V: RunVisitor>(
         match reader.read_event_into(&mut buf) {
             Ok(Event::Eof) => break,
             Ok(event) => {
-                let event = event.into_owned();
-                let local = local_name(&event);
-                match (&event, local.as_deref()) {
-                    (Event::Start(_), Some("p")) => {
-                        in_paragraph = true;
-                        run_index = 0;
-                        write_event(&mut writer, &event)?;
-                    }
-                    (Event::End(_), Some("p")) => {
-                        if let Some(rb) = run_buffer.take() {
-                            flush_run(
-                                &mut writer,
-                                rb,
-                                slide_index,
-                                paragraph_index,
-                                run_index,
-                                visitor,
-                            )?;
-                        }
-                        in_paragraph = false;
-                        paragraph_index += 1;
-                        write_event(&mut writer, &event)?;
-                    }
-                    (Event::Start(_), Some("r")) if in_paragraph => {
-                        run_buffer = Some(RunBuffer::new(event.clone()));
-                    }
-                    (Event::End(_), Some("r")) if run_buffer.is_some() => {
-                        let mut rb = run_buffer.take().unwrap();
-                        rb.end_event = Some(event);
+                let local = local_name_bytes_of(&event);
+
+                // Inside a run buffer, everything is captured until </a:r>.
+                if let Some(rb) = run_buffer.as_mut() {
+                    if matches!(event, Event::End(_)) && local == Some(b"r") {
+                        rb.end_event = Some(event.into_owned());
+                        let rb_taken = run_buffer.take().unwrap();
                         flush_run(
                             &mut writer,
-                            rb,
+                            rb_taken,
                             slide_index,
                             paragraph_index,
                             run_index,
                             visitor,
                         )?;
                         run_index += 1;
+                    } else {
+                        rb.push(event.into_owned());
                     }
-                    _ if run_buffer.is_some() => {
-                        run_buffer.as_mut().unwrap().push(event);
+                    buf.clear();
+                    continue;
+                }
+
+                // Outside a run: track structural boundaries, pass through
+                // without owning.
+                match (&event, local) {
+                    (Event::Start(_), Some(b"p")) => {
+                        in_paragraph = true;
+                        run_index = 0;
+                        write_event(&mut writer, &event)?;
+                    }
+                    (Event::End(_), Some(b"p")) => {
+                        in_paragraph = false;
+                        paragraph_index += 1;
+                        write_event(&mut writer, &event)?;
+                    }
+                    (Event::Start(_), Some(b"r")) if in_paragraph => {
+                        run_buffer = Some(RunBuffer::new(event.into_owned()));
                     }
                     _ => {
                         write_event(&mut writer, &event)?;
@@ -180,17 +158,14 @@ fn transform_slide_xml<V: RunVisitor>(
     Ok(String::from_utf8(bytes).context("invalid UTF-8 in slide output")?)
 }
 
-fn local_name(event: &Event<'_>) -> Option<String> {
+/// Zero-allocation local-name accessor for an Event.
+fn local_name_bytes_of<'a>(event: &'a Event<'_>) -> Option<&'a [u8]> {
     let bytes = match event {
-        Event::Start(b) | Event::Empty(b) => b.name().into_inner().to_vec(),
-        Event::End(b) => b.name().into_inner().to_vec(),
+        Event::Start(b) | Event::Empty(b) => b.name().into_inner(),
+        Event::End(b) => b.name().into_inner(),
         _ => return None,
     };
-    let s = String::from_utf8(bytes).ok()?;
-    Some(match s.rsplit_once(':') {
-        Some((_, local)) => local.to_string(),
-        None => s,
-    })
+    Some(local_name_bytes(bytes))
 }
 
 fn local_name_bytes(name: &[u8]) -> &[u8] {

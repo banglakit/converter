@@ -5,13 +5,18 @@
 //! DOCX. All zip entries other than `word/document.xml` are copied
 //! byte-for-byte, satisfying the SDD §11 format-fidelity requirement.
 //!
-//! Font extraction reads `w:rPr/w:rFonts/@w:ascii` first, then `@w:hAnsi`.
-//! When a run does not declare its own font, we fall back to the OOXML
-//! style cascade defined in [`styles::Stylesheet`]:
-//!   run rPr  →  paragraph rPr defaults  →  paragraph style + basedOn
-//!   chain  →  default paragraph style  →  docDefaults rPrDefault.
+//! Font resolution for a run, in order:
+//!   run rPr → paragraph rPr defaults → paragraph style + basedOn chain
+//!   → default paragraph style → docDefaults rPrDefault.
+//!
+//! Each `<w:rFonts>` element resolves through [`theme::font_from_rfonts`],
+//! which honours `w:asciiTheme` / `w:hAnsiTheme` references into
+//! `word/theme/theme1.xml`. Modern Word output writes its default font
+//! that way; without theme resolution our cascade would silently return
+//! `None` for those runs.
 
 pub mod styles;
+pub mod theme;
 
 use anyhow::{anyhow, Context, Result};
 use quick_xml::events::attributes::Attribute;
@@ -24,10 +29,12 @@ use std::path::Path;
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::styles::Stylesheet;
+use crate::theme::{font_from_rfonts, Theme};
 pub use banglakit_core::{RunAction, RunRef, RunVisitor};
 
 const DOCUMENT_XML: &str = "word/document.xml";
 const STYLES_XML: &str = "word/styles.xml";
+const THEME_XML: &str = "word/theme/theme1.xml";
 
 /// Read `in_path`, stream each run past `visitor`, and write the result to
 /// `out_path`. Non-`word/document.xml` zip entries are copied verbatim.
@@ -48,18 +55,27 @@ pub fn process_docx<V: RunVisitor>(
         entry.read_to_string(&mut document_xml)?;
     }
 
-    // styles.xml is optional in OOXML — older / minimal DOCX files may
-    // ship without one. Treat absence as "empty stylesheet".
+    // theme1.xml and styles.xml are both optional in OOXML. Treat
+    // absences as "empty" and let cascade resolution fall through.
+    let theme = match archive.by_name(THEME_XML) {
+        Ok(mut entry) => {
+            let mut s = String::new();
+            entry.read_to_string(&mut s)?;
+            theme::parse_theme(&s)?
+        }
+        Err(_) => Theme::default(),
+    };
     let stylesheet = match archive.by_name(STYLES_XML) {
         Ok(mut entry) => {
             let mut s = String::new();
             entry.read_to_string(&mut s)?;
-            styles::parse_styles(&s)?
+            styles::parse_styles(&s, Some(&theme))?
         }
         Err(_) => Stylesheet::default(),
     };
 
-    let new_document_xml = transform_document_xml(&document_xml, &stylesheet, visitor)?;
+    let new_document_xml =
+        transform_document_xml(&document_xml, &stylesheet, Some(&theme), visitor)?;
 
     let out_file = File::create(out_path)
         .with_context(|| format!("creating {}", out_path.display()))?;
@@ -85,14 +101,29 @@ pub fn process_docx<V: RunVisitor>(
 }
 
 #[derive(Default, Clone)]
-struct ParagraphState {
+struct ParagraphContext {
     style_id: Option<String>,
     run_default_font: Option<String>,
 }
 
+/// Walker for `word/document.xml`.
+///
+/// Three concerns kept separate:
+/// 1. **Pass-through writing.** The vast majority of events go straight to
+///    the output without ownership transfer.
+/// 2. **`<w:pPr>` capture-and-parse.** Once we see `<w:pPr>`, we buffer
+///    its events into a small Vec (bounded by paragraph-property
+///    complexity, ~10–20 events), then parse the buffer to a typed
+///    `ParagraphContext` at `</w:pPr>` and emit the captured events
+///    verbatim. The data extraction is then a tiny pure function rather
+///    than tangled flags interleaved with the main walker.
+/// 3. **`<w:r>` capture-and-rewrite.** Same shape: buffer until `</w:r>`,
+///    hand the contents (plus the paragraph context and stylesheet) to
+///    the visitor, emit possibly-modified events back to the writer.
 fn transform_document_xml<V: RunVisitor>(
     xml: &str,
     stylesheet: &Stylesheet,
+    theme: Option<&Theme>,
     visitor: &mut V,
 ) -> Result<String> {
     let mut reader = Reader::from_str(xml);
@@ -100,102 +131,81 @@ fn transform_document_xml<V: RunVisitor>(
     let mut writer = Writer::new(Cursor::new(Vec::<u8>::new()));
 
     let mut run_buffer: Option<RunBuffer> = None;
+    let mut ppr_buffer: Option<Vec<Event<'static>>> = None;
     let mut paragraph_index: usize = 0;
     let mut run_index: usize = 0;
     let mut in_paragraph = false;
-    let mut paragraph = ParagraphState::default();
-    // Whether we're currently inside <w:pPr> (paragraph properties block).
-    let mut in_ppr = false;
-    // Whether we're currently inside <w:pPr>/<w:rPr> (paragraph-level run
-    // defaults). Only `rFonts` seen here is the paragraph default.
-    let mut in_ppr_rpr = false;
+    let mut paragraph_ctx = ParagraphContext::default();
 
     let mut buf = Vec::new();
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Eof) => break,
             Ok(event) => {
-                let event = event.into_owned();
-                let local = local_name(&event);
-                match (&event, local.as_deref()) {
-                    (Event::Start(_), Some("p")) => {
+                let local = local_name_bytes_of(&event);
+
+                // Inside a run buffer, everything is captured until </w:r>.
+                if let Some(rb) = run_buffer.as_mut() {
+                    if matches!(event, Event::End(_)) && local == Some(b"r") {
+                        // close run, flush
+                        rb.end_event = Some(event.into_owned());
+                        let rb_taken = run_buffer.take().unwrap();
+                        flush_run(
+                            &mut writer,
+                            rb_taken,
+                            paragraph_index,
+                            run_index,
+                            &paragraph_ctx,
+                            stylesheet,
+                            theme,
+                            visitor,
+                        )?;
+                        run_index += 1;
+                    } else {
+                        rb.push(event.into_owned());
+                    }
+                    buf.clear();
+                    continue;
+                }
+
+                // Inside a pPr buffer, everything is captured until </w:pPr>.
+                if let Some(pb) = ppr_buffer.as_mut() {
+                    if matches!(event, Event::End(_)) && local == Some(b"pPr") {
+                        pb.push(event.into_owned());
+                        let captured = ppr_buffer.take().unwrap();
+                        paragraph_ctx = parse_ppr(&captured, theme);
+                        // Emit captured events verbatim.
+                        for e in &captured {
+                            write_event(&mut writer, e)?;
+                        }
+                    } else {
+                        pb.push(event.into_owned());
+                    }
+                    buf.clear();
+                    continue;
+                }
+
+                // Outside any capture: track structural boundaries, pass through.
+                match (&event, local) {
+                    (Event::Start(_), Some(b"p")) => {
                         in_paragraph = true;
                         run_index = 0;
-                        paragraph = ParagraphState::default();
+                        paragraph_ctx = ParagraphContext::default();
                         write_event(&mut writer, &event)?;
                     }
-                    (Event::End(_), Some("p")) => {
-                        if let Some(rb) = run_buffer.take() {
-                            flush_run(
-                                &mut writer,
-                                rb,
-                                paragraph_index,
-                                run_index,
-                                &paragraph,
-                                stylesheet,
-                                visitor,
-                            )?;
-                        }
+                    (Event::End(_), Some(b"p")) => {
                         in_paragraph = false;
                         paragraph_index += 1;
                         write_event(&mut writer, &event)?;
                     }
-                    (Event::Start(_), Some("pPr")) if run_buffer.is_none() => {
-                        in_ppr = true;
-                        write_event(&mut writer, &event)?;
+                    (Event::Start(_), Some(b"pPr")) => {
+                        // Begin capturing pPr.
+                        let mut v = Vec::with_capacity(16);
+                        v.push(event.into_owned());
+                        ppr_buffer = Some(v);
                     }
-                    (Event::End(_), Some("pPr")) if run_buffer.is_none() => {
-                        in_ppr = false;
-                        in_ppr_rpr = false;
-                        write_event(&mut writer, &event)?;
-                    }
-                    (Event::Start(_), Some("rPr")) if in_ppr => {
-                        in_ppr_rpr = true;
-                        write_event(&mut writer, &event)?;
-                    }
-                    (Event::End(_), Some("rPr")) if in_ppr_rpr => {
-                        in_ppr_rpr = false;
-                        write_event(&mut writer, &event)?;
-                    }
-                    (Event::Empty(b), Some("pStyle")) if in_ppr => {
-                        if let Some(val) = attr_local(b, b"val") {
-                            paragraph.style_id = Some(val);
-                        }
-                        write_event(&mut writer, &event)?;
-                    }
-                    (Event::Start(b), Some("pStyle")) if in_ppr => {
-                        if let Some(val) = attr_local(b, b"val") {
-                            paragraph.style_id = Some(val);
-                        }
-                        write_event(&mut writer, &event)?;
-                    }
-                    (Event::Empty(b), Some("rFonts")) if in_ppr_rpr => {
-                        paragraph.run_default_font = read_font_from_attrs(b);
-                        write_event(&mut writer, &event)?;
-                    }
-                    (Event::Start(b), Some("rFonts")) if in_ppr_rpr => {
-                        paragraph.run_default_font = read_font_from_attrs(b);
-                        write_event(&mut writer, &event)?;
-                    }
-                    (Event::Start(_), Some("r")) if in_paragraph && !in_ppr => {
-                        run_buffer = Some(RunBuffer::new(event.clone()));
-                    }
-                    (Event::End(_), Some("r")) if run_buffer.is_some() => {
-                        let mut rb = run_buffer.take().unwrap();
-                        rb.end_event = Some(event);
-                        flush_run(
-                            &mut writer,
-                            rb,
-                            paragraph_index,
-                            run_index,
-                            &paragraph,
-                            stylesheet,
-                            visitor,
-                        )?;
-                        run_index += 1;
-                    }
-                    _ if run_buffer.is_some() => {
-                        run_buffer.as_mut().unwrap().push(event);
+                    (Event::Start(_), Some(b"r")) if in_paragraph => {
+                        run_buffer = Some(RunBuffer::new(event.into_owned()));
                     }
                     _ => {
                         write_event(&mut writer, &event)?;
@@ -211,27 +221,35 @@ fn transform_document_xml<V: RunVisitor>(
     Ok(String::from_utf8(bytes).context("invalid UTF-8 in output XML")?)
 }
 
-fn attr_local(b: &BytesStart<'_>, want_local: &[u8]) -> Option<String> {
-    for a in b.attributes().with_checks(false).flatten() {
-        let key = a.key.into_inner();
-        if local_name_bytes(key) == want_local {
-            return a.unescape_value().ok().map(|v| v.into_owned());
+/// Parse a captured `<w:pPr>…</w:pPr>` event sequence into a typed
+/// [`ParagraphContext`]. Reads `<w:pStyle w:val="…"/>` for the style id
+/// and `<w:rFonts>` inside the inner `<w:rPr>` for the paragraph-level
+/// run default font.
+fn parse_ppr(events: &[Event<'static>], theme: Option<&Theme>) -> ParagraphContext {
+    let mut ctx = ParagraphContext::default();
+    // Depth into nested rPr elements (only one in practice, but be defensive).
+    let mut in_rpr = 0usize;
+    for ev in events {
+        let local = local_name_bytes_of(ev);
+        match (ev, local) {
+            (Event::Empty(b), Some(b"pStyle")) | (Event::Start(b), Some(b"pStyle")) => {
+                if let Some(val) = styles::attr(b, b"val") {
+                    ctx.style_id = Some(val);
+                }
+            }
+            (Event::Start(_), Some(b"rPr")) => in_rpr += 1,
+            (Event::End(_), Some(b"rPr")) => in_rpr = in_rpr.saturating_sub(1),
+            (Event::Empty(b), Some(b"rFonts")) | (Event::Start(b), Some(b"rFonts"))
+                if in_rpr > 0 =>
+            {
+                if ctx.run_default_font.is_none() {
+                    ctx.run_default_font = font_from_rfonts(b, theme);
+                }
+            }
+            _ => {}
         }
     }
-    None
-}
-
-fn local_name(event: &Event<'_>) -> Option<String> {
-    let bytes = match event {
-        Event::Start(b) | Event::Empty(b) => b.name().into_inner().to_vec(),
-        Event::End(b) => b.name().into_inner().to_vec(),
-        _ => return None,
-    };
-    let s = String::from_utf8(bytes).ok()?;
-    Some(match s.rsplit_once(':') {
-        Some((_, local)) => local.to_string(),
-        None => s,
-    })
+    ctx
 }
 
 fn write_event(writer: &mut Writer<Cursor<Vec<u8>>>, event: &Event<'_>) -> Result<()> {
@@ -265,11 +283,12 @@ fn flush_run<V: RunVisitor>(
     rb: RunBuffer,
     paragraph_index: usize,
     run_index: usize,
-    paragraph: &ParagraphState,
+    paragraph: &ParagraphContext,
     stylesheet: &Stylesheet,
+    theme: Option<&Theme>,
     visitor: &mut V,
 ) -> Result<()> {
-    let (run_font, text) = extract_font_and_text(&rb.events);
+    let (run_font, text) = extract_font_and_text(&rb.events, theme);
     let resolved_font_owned: Option<String> = stylesheet
         .resolve_run_font(
             run_font.as_deref(),
@@ -362,17 +381,20 @@ fn make_rfonts(font: &str) -> BytesStart<'static> {
     b
 }
 
-fn extract_font_and_text(events: &[Event<'static>]) -> (Option<String>, String) {
+fn extract_font_and_text(
+    events: &[Event<'static>],
+    theme: Option<&Theme>,
+) -> (Option<String>, String) {
     let mut font: Option<String> = None;
     let mut text = String::new();
     let mut in_text = false;
     for ev in events {
         match ev {
             Event::Empty(b) if is_rfonts(b) => {
-                font = font.or_else(|| read_font_from_attrs(b));
+                font = font.or_else(|| font_from_rfonts(b, theme));
             }
             Event::Start(b) if is_rfonts(b) => {
-                font = font.or_else(|| read_font_from_attrs(b));
+                font = font.or_else(|| font_from_rfonts(b, theme));
             }
             Event::Start(b) if local_name_bytes(b.name().into_inner()) == b"t" => {
                 in_text = true;
@@ -395,27 +417,22 @@ fn is_rfonts(b: &BytesStart<'_>) -> bool {
     local_name_bytes(b.name().into_inner()) == b"rFonts"
 }
 
-fn local_name_bytes(name: &[u8]) -> &[u8] {
+pub(crate) fn local_name_bytes(name: &[u8]) -> &[u8] {
     match name.iter().rposition(|&b| b == b':') {
         Some(idx) => &name[idx + 1..],
         None => name,
     }
 }
 
-fn read_font_from_attrs(b: &BytesStart<'_>) -> Option<String> {
-    let mut ascii: Option<String> = None;
-    let mut hansi: Option<String> = None;
-    for attr in b.attributes().with_checks(false).flatten() {
-        let key = attr.key.into_inner();
-        let local = local_name_bytes(key);
-        let val = attr.unescape_value().ok()?;
-        match local {
-            b"ascii" => ascii = Some(val.into_owned()),
-            b"hAnsi" => hansi = Some(val.into_owned()),
-            _ => {}
-        }
-    }
-    ascii.or(hansi)
+/// Zero-allocation local-name accessor for an Event. The returned slice
+/// borrows from the event's underlying buffer.
+pub(crate) fn local_name_bytes_of<'a>(event: &'a Event<'_>) -> Option<&'a [u8]> {
+    let bytes = match event {
+        Event::Start(b) | Event::Empty(b) => b.name().into_inner(),
+        Event::End(b) => b.name().into_inner(),
+        _ => return None,
+    };
+    Some(local_name_bytes(bytes))
 }
 
 fn emit_run_events(
@@ -528,7 +545,7 @@ mod tests {
         let xml = MINIMAL_DOC.to_string();
         let sheet = Stylesheet::default();
         let out =
-            transform_document_xml(&xml, &sheet, &mut |_run: RunRef<'_>| RunAction::Keep).unwrap();
+            transform_document_xml(&xml, &sheet, None, &mut |_run: RunRef<'_>| RunAction::Keep).unwrap();
         assert!(out.contains("Avwg evsjvq"), "output: {out}");
         assert!(out.contains("Hello world"));
     }
@@ -537,7 +554,7 @@ mod tests {
     fn replaces_run_text() {
         let xml = MINIMAL_DOC.to_string();
         let sheet = Stylesheet::default();
-        let out = transform_document_xml(&xml, &sheet, &mut |run: RunRef<'_>| {
+        let out = transform_document_xml(&xml, &sheet, None, &mut |run: RunRef<'_>| {
             if run.text.starts_with("Avwg") {
                 RunAction::Replace {
                     new_text: "আমি বাংলায়".to_string(),
@@ -575,7 +592,7 @@ mod tests {
         );
 
         let mut seen: Option<String> = None;
-        let _ = transform_document_xml(xml, &sheet, &mut |run: RunRef<'_>| {
+        let _ = transform_document_xml(xml, &sheet, None, &mut |run: RunRef<'_>| {
             seen = run.font_name.map(|s| s.to_string());
             RunAction::Keep
         })
@@ -597,7 +614,7 @@ mod tests {
 </w:document>"#;
         let sheet = Stylesheet::default();
         let mut seen: Option<String> = None;
-        let _ = transform_document_xml(xml, &sheet, &mut |run: RunRef<'_>| {
+        let _ = transform_document_xml(xml, &sheet, None, &mut |run: RunRef<'_>| {
             seen = run.font_name.map(|s| s.to_string());
             RunAction::Keep
         })
@@ -614,7 +631,7 @@ mod tests {
         let mut sheet = Stylesheet::default();
         sheet.default_font = Some("DocDefault".to_string());
         let mut seen: Option<String> = None;
-        let _ = transform_document_xml(xml, &sheet, &mut |run: RunRef<'_>| {
+        let _ = transform_document_xml(xml, &sheet, None, &mut |run: RunRef<'_>| {
             seen = run.font_name.map(|s| s.to_string());
             RunAction::Keep
         })
@@ -642,7 +659,7 @@ mod tests {
             },
         );
         let mut seen: Option<String> = None;
-        let _ = transform_document_xml(xml, &sheet, &mut |run: RunRef<'_>| {
+        let _ = transform_document_xml(xml, &sheet, None, &mut |run: RunRef<'_>| {
             seen = run.font_name.map(|s| s.to_string());
             RunAction::Keep
         })
