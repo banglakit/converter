@@ -92,3 +92,22 @@ function parseDocsId_(id) {
     charEnd: parseInt(match[3], 10)
   };
 }
+
+/**
+ * Applies conversion results to a Google Sheet.
+ * ID format: "sheets:R<row>:C<col>"
+ */
+function applyConversionsSheets_(results) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+
+  for (var i = 0; i < results.length; i++) {
+    var r = results[i];
+    var match = r.id.match(/^sheets:R(\d+):C(\d+)$/);
+    var row = parseInt(match[1], 10);
+    var col = parseInt(match[2], 10);
+
+    var cell = sheet.getRange(row, col);
+    cell.setValue(r.newText);
+    cell.setFontFamily(r.newFont);
+  }
+}
