@@ -1,0 +1,17 @@
+[package]
+name = "banglakit-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "WebAssembly bindings for banglakit-core (Bijoy → Unicode Bengali). Designed for npm consumption from Office Add-ins, web apps, and Node tooling."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+banglakit-core = { path = "../banglakit-core" }
+wasm-bindgen = "0.2"
+serde = { workspace = true }
+serde-wasm-bindgen = "0.6"

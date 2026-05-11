@@ -4,6 +4,7 @@ members = [
     "crates/banglakit-core",
     "crates/banglakit-docx",
     "crates/banglakit-cli",
+    "crates/banglakit-wasm",
 ]
 
 [workspace.package]

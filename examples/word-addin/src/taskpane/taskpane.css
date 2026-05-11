@@ -1,0 +1,31 @@
+body {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  margin: 0;
+  padding: 1rem;
+  color: #323130;
+}
+h1 { font-size: 1.2rem; margin: 0 0 0.25rem; }
+header p { margin: 0 0 1rem; color: #605e5c; }
+label { display: block; margin: 0.5rem 0; }
+select { display: block; width: 100%; padding: 0.25rem; margin-top: 0.25rem; }
+button {
+  display: block;
+  width: 100%;
+  padding: 0.5rem;
+  margin-top: 0.75rem;
+  border: 1px solid #8a8886;
+  background: #f3f2f1;
+  cursor: pointer;
+}
+button.ms-Button--primary {
+  background: #0078d4;
+  border-color: #0078d4;
+  color: white;
+}
+#status {
+  margin-top: 1rem;
+  padding: 0.5rem;
+  background: #faf9f8;
+  border-left: 3px solid #0078d4;
+  min-height: 1.2rem;
+}

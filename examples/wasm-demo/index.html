@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>banglakit-converter — WASM demo</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+        max-width: 880px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+      h1 { margin: 0 0 0.5rem; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+      textarea {
+        width: 100%;
+        min-height: 12rem;
+        font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+        padding: 0.5rem;
+        box-sizing: border-box;
+      }
+      .out {
+        white-space: pre-wrap;
+        background: #f6f6f6;
+        padding: 0.75rem;
+        border-radius: 4px;
+        min-height: 12rem;
+        font: 14px/1.4 "Kalpurush", "Nikosh", "SolaimanLipi", system-ui, sans-serif;
+      }
+      label { display: block; font-size: 0.85rem; color: #555; margin: 0 0 0.25rem; }
+      .controls { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+      .controls input, .controls select { padding: 0.25rem 0.4rem; }
+      pre.meta { background: #f0f0f0; padding: 0.5rem; font-size: 12px; overflow-x: auto; }
+      .pill {
+        display: inline-block;
+        padding: 0.1rem 0.5rem;
+        border-radius: 999px;
+        font-size: 11px;
+        background: #eef;
+        color: #225;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>banglakit-converter — WASM demo</h1>
+    <p>
+      Paste a Bijoy-encoded paragraph on the left. The classifier + transliterator run
+      entirely client-side in WebAssembly — the same code that the Word Add-in calls
+      from the <code>Word.run</code> loop on a per-run basis.
+    </p>
+
+    <div class="controls">
+      <span class="pill" id="version">loading…</span>
+      <label>
+        font hint:
+        <input id="font" placeholder="e.g. SutonnyMJ" />
+      </label>
+      <label>
+        mode:
+        <select id="mode">
+          <option value="safe" selected>safe (≥ 0.95)</option>
+          <option value="aggressive">aggressive (≥ 0.85)</option>
+        </select>
+      </label>
+      <label>
+        target font:
+        <select id="unicodeFont">
+          <option>Kalpurush</option>
+          <option>Nikosh</option>
+          <option>SolaimanLipi</option>
+          <option>Noto Sans Bengali</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="input">input (Bijoy)</label>
+        <textarea id="input" spellcheck="false">Avwg evsjvq Mvb MvB|
+Gas price is $5 today.
+ÒAviv eyS‡Z cv‡imÓ</textarea>
+      </div>
+      <div>
+        <label for="out">output</label>
+        <div id="out" class="out"></div>
+        <label style="margin-top:0.5rem">classifier metadata</label>
+        <pre id="meta" class="meta"></pre>
+      </div>
+    </div>
+
+    <script type="module">
+      // Built by `wasm-pack build crates/banglakit-wasm --target web --out-dir examples/wasm-demo/pkg`.
+      import init, {
+        convertRun,
+        coreVersion,
+      } from "./pkg/banglakit_wasm.js";
+
+      const $ = (id) => document.getElementById(id);
+
+      function process() {
+        const fontHint = $("font").value.trim() || undefined;
+        const mode = $("mode").value;
+        const unicodeFont = $("unicodeFont").value;
+        const lines = $("input").value.split(/\r?\n/);
+        const results = lines.map((line) =>
+          convertRun(line, fontHint, "bijoy", mode, unicodeFont),
+        );
+        $("out").textContent = results.map((r) => r.text).join("\n");
+        $("meta").textContent = results
+          .map(
+            (r, i) =>
+              `${i.toString().padStart(2)}: ${r.changed ? "✓" : " "} ` +
+              `decision=${r.decision}${r.encoding ? `(${r.encoding})` : ""} ` +
+              `stage=${r.stage} p=${r.confidence.toFixed(3)}` +
+              (r.suggestedFont ? ` font→${r.suggestedFont}` : ""),
+          )
+          .join("\n");
+      }
+
+      (async () => {
+        await init();
+        $("version").textContent = `banglakit-wasm ${coreVersion()}`;
+        ["input", "font", "mode", "unicodeFont"].forEach((id) =>
+          $(id).addEventListener("input", process),
+        );
+        process();
+      })();
+    </script>
+  </body>
+</html>
