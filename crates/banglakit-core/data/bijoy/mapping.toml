@@ -231,6 +231,66 @@ direction = "bijoy_to_unicode"
 "…" = "ৃ"
 "‰" = "ৈ"
 
+# Alternate vowel sign codes (variant font codepoints)
+"z" = "ু"
+"æ" = "ু"
+"–" = "ু"
+"ƒ" = "ূ"
+"‚" = "ূ"
+"„" = "ৃ"
+"†" = "ে"
+"ˆ" = "ৈ"
+
+# Alternate consonant codes (variant font codepoints)
+"¤" = "ম"
+"®" = "ষ"
+"¯" = "স"
+"š" = "ন"
+"˜" = "দ"
+"™" = "দ"
+"•" = "ঙ"
+"—" = "ড়"
+
+# Standalone modifier/joiner forms
+"^" = "্ব"
+"¡" = "্ব"
+"¦" = "্ব"
+"Ÿ" = "্ব"
+"¥" = "্ম"
+"§" = "্ম"
+"ª" = "্র"
+"Ö" = "্র"
+"¬" = "্ল"
+"ø" = "্ল"
+"œ" = "্ন"
+"è" = "্ন"
+"¢" = "্ভ"
+"£" = "্ভ্র"
+"Í" = "্ত"
+"ú" = "্প"
+"‹" = "্ক"
+"Œ" = "্ক্র"
+"¿" = "্ত্র"
+"\u2018" = "্তু"
+"\u2019" = "্হ"
+"\u201D" = "চ্"
+"›" = "ন্"
+
+# Conjuncts (alternate single-char codes)
+"¹" = "ক্ষ্ণ"
+"²" = "ক্ষ্ম"
+"´" = "ক্ন"
+"º" = "গ্দ"
+"ÿ" = "ক্ষ"
+"ñ" = "শ্ছ"
+"Ð" = "ণ্ড"
+"−" = "ণ্ঢ"
+
+# Special
+"$" = "৳"
+"@" = "ӯ"
+"Ñ" = "-"
+
 [quadgrams]
 
 # Post-substitution passes applied in this exact order.
