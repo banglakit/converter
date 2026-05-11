@@ -133,6 +133,11 @@
     color: #5f6368;
   }
   .status.error { color: #c5221f; }
+
+  #content {
+    flex: 1;
+    flex-direction: column;
+  }
 </style>
 </head>
 <body>
@@ -147,7 +152,7 @@
   <span>Loading converter...</span>
 </div>
 
-<div id="content" style="display:none; flex:1; display:none; flex-direction:column;">
+<div id="content" style="display:none;">
   <div id="scopeBar" class="scope"></div>
   <div id="fontMapSection" class="font-map">
     <div class="font-map-label">Font Mapping</div>

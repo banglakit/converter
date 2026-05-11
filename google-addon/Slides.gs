@@ -7,13 +7,19 @@ function showConvertDialogSlides() {
   var runs;
   var scope;
 
-  if (selection.getSelectionType() === SlidesApp.SelectionType.TEXT) {
+  var selType = selection.getSelectionType();
+
+  if (selType === SlidesApp.SelectionType.TEXT) {
+    // User is editing text inside a shape — convert only that text range
     var textRange = selection.getTextRange();
-    var pageElement = selection.getCurrentPage()
-      ? null  // we'll get it from the text range's parent
-      : null;
-    // For text selection, extract from the selected text range
-    runs = extractRunsFromTextRange_(textRange, 0, 0);
+    var pageElement = selection.getPageElementRange().getPageElements()[0];
+    var slideShape = findSlideAndShapeIndex_(presentation, pageElement);
+    runs = extractRunsFromTextRange_(textRange, slideShape.slide, slideShape.shape);
+    scope = 'selection';
+  } else if (selType === SlidesApp.SelectionType.PAGE_ELEMENT) {
+    // User selected one or more shapes — convert text in those shapes
+    var pageElements = selection.getPageElementRange().getPageElements();
+    runs = extractRunsFromSelectedShapes_(presentation, pageElements);
     scope = 'selection';
   } else {
     runs = extractRunsFromAllSlides_(presentation);
@@ -21,6 +27,44 @@ function showConvertDialogSlides() {
   }
 
   showConvertDialog_(runs, scope, 'slides');
+}
+
+/**
+ * Extracts runs from a set of selected page elements (shapes).
+ */
+function extractRunsFromSelectedShapes_(presentation, pageElements) {
+  var runs = [];
+  for (var i = 0; i < pageElements.length; i++) {
+    var el = pageElements[i];
+    var textRange;
+    try {
+      textRange = el.asShape().getText();
+    } catch (e) {
+      continue;  // Not a shape or has no text frame
+    }
+    var idx = findSlideAndShapeIndex_(presentation, el);
+    var shapeRuns = extractRunsFromTextRange_(textRange, idx.slide, idx.shape);
+    runs = runs.concat(shapeRuns);
+  }
+  return runs;
+}
+
+/**
+ * Finds the slide and shape index for a given page element.
+ * Returns {slide: number, shape: number}.
+ */
+function findSlideAndShapeIndex_(presentation, pageElement) {
+  var objectId = pageElement.getObjectId();
+  var slides = presentation.getSlides();
+  for (var s = 0; s < slides.length; s++) {
+    var shapes = slides[s].getShapes();
+    for (var sh = 0; sh < shapes.length; sh++) {
+      if (shapes[sh].getObjectId() === objectId) {
+        return { slide: s, shape: sh };
+      }
+    }
+  }
+  return { slide: 0, shape: 0 };  // fallback
 }
 
 /**
