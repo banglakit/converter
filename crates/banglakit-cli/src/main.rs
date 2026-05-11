@@ -12,8 +12,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use banglakit_core::{
-    convert_run, Classification, ConvertOptions, Decision, Encoding, Mode, RunAction, RunRef,
-    RunVisitor, Stage,
+    convert_run, Classification, ConvertOptions, Encoding, Mode, RunAction, RunRef, RunVisitor,
 };
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use clap::{Parser, ValueEnum};
@@ -170,39 +169,24 @@ fn write_audit(sink: &mut Option<AuditSink>, entry: &AuditEntry<'_>) -> Result<(
     Ok(())
 }
 
-fn stage_name(s: Stage) -> &'static str {
-    match s {
-        Stage::UnicodeRange => "unicode_range",
-        Stage::AnsiFont => "ansi_font",
-        Stage::UnicodeFont => "unicode_font",
-        Stage::Heuristic => "heuristic",
-    }
-}
-
-fn decision_name(d: Decision) -> &'static str {
-    match d {
-        Decision::AnsiBengali(_) => "ansi_bengali",
-        Decision::UnicodeBengali => "unicode_bengali",
-        Decision::Latin => "latin",
-        Decision::Ambiguous => "ambiguous",
-    }
+fn format_signals(c: &Classification) -> String {
+    c.signals
+        .iter()
+        .map(|s| format!("{}={:.3}", s.name, s.value))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn maybe_explain(cli: &Cli, label: &str, c: &Classification) {
     if !cli.explain {
         return;
     }
-    let signals: Vec<String> = c
-        .signals
-        .iter()
-        .map(|s| format!("{}={:.3}", s.name, s.value))
-        .collect();
     eprintln!(
         "[explain] {label} stage={:?} decision={:?} p={:.3} signals=[{}]",
         c.stage,
         c.decision,
         c.confidence,
-        signals.join(", ")
+        format_signals(c),
     );
 }
 
@@ -237,8 +221,8 @@ fn process_text_input(
             run_index: None,
             source_format: "plain_text",
             font_name: None,
-            stage: stage_name(result.classification.stage),
-            decision: decision_name(result.classification.decision),
+            stage: result.classification.stage.as_str(),
+            decision: result.classification.decision.as_str(),
             confidence: result.classification.confidence,
             original_text_b64: B64.encode(&input_bytes),
             unicode_output: if result.changed { Some(result.text.clone()) } else { None },
@@ -362,11 +346,6 @@ impl<'a> RunVisitor for OoxmlVisitor<'a> {
         let c = &result.classification;
 
         if self.explain {
-            let signals: Vec<String> = c
-                .signals
-                .iter()
-                .map(|s| format!("{}={:.3}", s.name, s.value))
-                .collect();
             let slide_part = run
                 .slide_index
                 .map(|s| format!("s{s}/"))
@@ -379,7 +358,7 @@ impl<'a> RunVisitor for OoxmlVisitor<'a> {
                 c.stage,
                 c.decision,
                 c.confidence,
-                signals.join(", "),
+                format_signals(c),
                 fmt = self.format,
             );
         }
@@ -392,8 +371,8 @@ impl<'a> RunVisitor for OoxmlVisitor<'a> {
                 run_index: Some(run.run_index),
                 source_format: self.format,
                 font_name: run.font_name,
-                stage: stage_name(c.stage),
-                decision: decision_name(c.decision),
+                stage: c.stage.as_str(),
+                decision: c.decision.as_str(),
                 confidence: c.confidence,
                 original_text_b64: B64.encode(run.text.as_bytes()),
                 unicode_output: if result.changed { Some(result.text.clone()) } else { None },
@@ -402,12 +381,7 @@ impl<'a> RunVisitor for OoxmlVisitor<'a> {
 
         if result.changed {
             self.any_change = true;
-            RunAction::Replace {
-                new_text: result.text,
-                new_font: result.font.map(str::to_string),
-            }
-        } else {
-            RunAction::Keep
         }
+        RunAction::from(result)
     }
 }

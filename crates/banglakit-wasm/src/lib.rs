@@ -16,10 +16,10 @@
 //! exposed so callers can build their own policies on top of the primitives.
 
 use banglakit_core::{
-    classify, convert_run, transliterate, ConvertOptions, Decision, DefaultRunVisitor, Encoding,
-    Mode, Stage,
+    classify, convert_run, transliterate, ConvertOptions, DefaultRunVisitor, Encoding, Mode,
 };
 use serde::Serialize;
+use std::str::FromStr;
 use wasm_bindgen::prelude::*;
 
 #[derive(Serialize)]
@@ -49,23 +49,18 @@ struct ConversionJs {
 }
 
 fn parse_mode(mode: Option<String>) -> Result<Mode, String> {
-    match mode.as_deref().unwrap_or("safe") {
-        "safe" => Ok(Mode::Safe),
-        "aggressive" => Ok(Mode::Aggressive),
-        other => Err(format!(
-            "unknown mode: {other:?}; expected \"safe\" or \"aggressive\""
-        )),
-    }
+    Mode::from_str(mode.as_deref().unwrap_or("safe"))
 }
 
 fn parse_encoding(encoding: Option<String>) -> Result<Encoding, String> {
-    match encoding.as_deref().unwrap_or("bijoy") {
-        "bijoy" | "sutonnymj" => Ok(Encoding::Bijoy),
-        other => Err(format!("unknown encoding family: {other:?}")),
-    }
+    Encoding::from_str(encoding.as_deref().unwrap_or("bijoy"))
 }
 
 fn parse_unicode_font(name: Option<String>) -> Result<&'static str, String> {
+    // Closed allowlist that returns `&'static str` so `ConvertOptions.unicode_font`
+    // can borrow it without forcing the caller to keep the string alive. Lives
+    // in this crate (rather than `banglakit-core`) because the lifetime
+    // contract is host-specific.
     match name.as_deref() {
         Some("Kalpurush") | None => Ok("Kalpurush"),
         Some("Nikosh") => Ok("Nikosh"),
@@ -74,24 +69,6 @@ fn parse_unicode_font(name: Option<String>) -> Result<&'static str, String> {
         Some(other) => Err(format!(
             "unicode_font {other:?} not in known allowlist; pass one of Kalpurush, Nikosh, SolaimanLipi, \"Noto Sans Bengali\""
         )),
-    }
-}
-
-fn decision_label(d: Decision) -> (&'static str, Option<&'static str>) {
-    match d {
-        Decision::AnsiBengali(e) => ("ansi_bengali", Some(e.as_str())),
-        Decision::UnicodeBengali => ("unicode_bengali", None),
-        Decision::Latin => ("latin", None),
-        Decision::Ambiguous => ("ambiguous", None),
-    }
-}
-
-fn stage_label(s: Stage) -> &'static str {
-    match s {
-        Stage::UnicodeRange => "unicode_range",
-        Stage::AnsiFont => "ansi_font",
-        Stage::UnicodeFont => "unicode_font",
-        Stage::Heuristic => "heuristic",
     }
 }
 
@@ -120,11 +97,10 @@ pub fn classify_run(
     let enc = parse_encoding(encoding).map_err(|e| JsError::new(&e))?;
     let m = parse_mode(mode).map_err(|e| JsError::new(&e))?;
     let c = classify(text, font_name.as_deref(), enc, m);
-    let (decision, encoding) = decision_label(c.decision);
     let out = ClassificationJs {
-        decision,
-        encoding,
-        stage: stage_label(c.stage),
+        decision: c.decision.as_str(),
+        encoding: c.decision.encoding().map(Encoding::as_str),
+        stage: c.stage.as_str(),
         confidence: c.confidence,
         signals: c
             .signals
@@ -169,7 +145,6 @@ pub fn convert_run_js(
         unicode_font: target_font,
     };
     let r = convert_run(text, font_name.as_deref(), &opts);
-    let (decision, decoded_encoding) = decision_label(r.classification.decision);
     // r.font borrows from `opts.unicode_font` (i.e. from `target_font`); use
     // the original `&'static str` directly to satisfy ConversionJs's lifetime.
     let suggested_font: Option<&'static str> = if r.changed { Some(target_font) } else { None };
@@ -177,9 +152,9 @@ pub fn convert_run_js(
     let out = ConversionJs {
         text: r.text,
         changed: r.changed,
-        decision,
-        encoding: decoded_encoding,
-        stage: stage_label(r.classification.stage),
+        decision: r.classification.decision.as_str(),
+        encoding: r.classification.decision.encoding().map(Encoding::as_str),
+        stage: r.classification.stage.as_str(),
         confidence: r.classification.confidence,
         suggested_font,
     };
