@@ -63,7 +63,9 @@ fn is_bengali_consonant(c: char) -> bool {
 }
 
 fn is_prekar(c: char) -> bool {
-    matches!(c, I_KAR | II_KAR | E_KAR | AI_KAR)
+    // Only ি, ে, ৈ are pre-base (visually left of consonant in Bijoy byte order).
+    // ী is post-base — it appears after the consonant in both visual and logical order.
+    matches!(c, I_KAR | E_KAR | AI_KAR)
 }
 
 fn is_kar(c: char) -> bool {
@@ -93,8 +95,11 @@ pub fn reph_reorder(input: &str) -> String {
         let has_reph_here = i + 1 < text.len()
             && text[i] == REPH_LEAD_RA
             && text[i + 1] == HASANTA;
-        let preceded_by_consonant = i > 0 && is_bengali_consonant(text[i - 1]);
-        let preceded_by_halant = i >= 2 && text[i - 2] == HASANTA;
+        // Look past an optional kar to find the consonant that owns this reph.
+        let preceded_by_consonant = (i > 0 && is_bengali_consonant(text[i - 1]))
+            || (i >= 2 && is_kar(text[i - 1]) && is_bengali_consonant(text[i - 2]));
+        let preceded_by_halant = (i >= 2 && text[i - 2] == HASANTA)
+            || (i >= 3 && is_kar(text[i - 1]) && text[i - 3] == HASANTA);
         if has_reph_here && preceded_by_consonant && !preceded_by_halant {
             // Walk backwards from i-1 collecting the consonant cluster.
             let mut j: usize = 1;
