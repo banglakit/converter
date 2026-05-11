@@ -84,7 +84,8 @@ function reportFileResult(name, result) {
   const summary = changed
     ? `Converted <strong>${escapeHtml(name)}</strong> — ${runs} run${runs === 1 ? "" : "s"} rewritten. Download started.`
     : `No Bijoy runs detected in <strong>${escapeHtml(name)}</strong>. Output is identical to the input.`;
-  setStatus(kind, summary + `<span class="meta">mode=${$("mode").value} target=${$("unicodeFont").value}</span>`);
+  const fontLabel = $("autoMatchFonts").checked ? "auto-matched" : $("unicodeFont").value;
+  setStatus(kind, summary + `<span class="meta">mode=${$("mode").value} target=${fontLabel}</span>`);
 }
 
 function escapeHtml(s) {
