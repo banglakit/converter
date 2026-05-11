@@ -144,13 +144,52 @@ crates/
 │       ├── classifier.rs         # Five-stage classifier
 │       ├── fonts.rs              # Font allowlist matching
 │       ├── english.rs            # English dictionary feature
-│       └── visitor.rs            # RunRef / RunAction / RunVisitor
+│       ├── visitor.rs            # RunRef / RunAction / RunVisitor
+│       └── policy.rs             # convert_run — the cross-host boundary
 ├── banglakit-docx/        # DOCX adapter: word/document.xml + word/styles.xml
 │   └── src/styles.rs              # Style-cascade resolution
 ├── banglakit-pptx/        # PPTX adapter: walks ppt/slides/slideN.xml
 ├── banglakit-cli/         # `banglakit-converter` binary
 └── banglakit-wasm/        # wasm-bindgen surface for browsers / Office Add-ins
 ```
+
+### Cross-platform run policy
+
+Every host — the CLI's DOCX/PPTX visitor, the WASM bindings used by
+Office.js (Word, PowerPoint, Excel Add-ins), and any future LibreOffice /
+Apache OpenOffice connector — calls one canonical function per run:
+`banglakit_core::convert_run(text, font_hint, &opts) -> ConvertedRun`.
+The classifier, the transliterator, and the safe / aggressive / threshold
+policy live behind that one call. Hosts differ only in *how they iterate
+runs* and *how they commit changes*:
+
+```
+                   ┌────────────────────────────────┐
+                   │  banglakit-core::policy        │
+                   │                                │
+                   │  convert_run(text, font, opts) │
+                   │    → ConvertedRun {            │
+                   │        text, font, changed,    │
+                   │        classification          │
+                   │    }                           │
+                   └────────────┬───────────────────┘
+                                │ called once per run
+     ┌──────────────────────────┼────────────────────────────┐
+     │                          │                            │
+┌────▼──────────┐  ┌────────────▼──────────┐    ┌────────────▼──────────┐
+│ CLI visitor   │  │ WASM convertRun       │    │ LibreOffice UNO       │
+│ (file path)   │  │ (JS / Office.js)      │    │ (future, Java/Python) │
+│               │  │                       │    │                       │
+│ quick-xml     │  │ Office.js Word.Range  │    │ UNO TextPortion       │
+│ event stream  │  │ iteration             │    │ enumeration           │
+└───────────────┘  └───────────────────────┘    └───────────────────────┘
+```
+
+Adding a new host means writing the small layer below the dashed line —
+iterate the host's native runs, call `convert_run`, apply the
+`ConvertedRun`. The XML state machines in `banglakit-docx` and
+`banglakit-pptx` deliberately stay format-specific; Office.js and UNO
+don't see XML, so the OOXML walker isn't worth generalizing across them.
 
 ## Office Add-in path
 

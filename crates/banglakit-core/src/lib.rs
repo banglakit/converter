@@ -18,6 +18,7 @@
 pub mod classifier;
 pub mod encoding;
 pub mod fonts;
+pub mod policy;
 pub mod visitor;
 mod english;
 mod mapping;
@@ -26,5 +27,6 @@ mod transliterate;
 
 pub use classifier::{classify, Classification, Decision, Mode, Signal, Stage};
 pub use encoding::{registry, Encoding, EncodingRegistry};
+pub use policy::{convert_run, ConvertOptions, ConvertedRun};
 pub use transliterate::{transliterate, transliterate_with_audit, SpanMap, SpanMapping};
 pub use visitor::{RunAction, RunRef, RunVisitor};

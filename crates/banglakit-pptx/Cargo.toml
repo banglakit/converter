@@ -12,4 +12,3 @@ banglakit-core = { path = "../banglakit-core" }
 quick-xml.workspace = true
 zip.workspace = true
 anyhow.workspace = true
-thiserror.workspace = true

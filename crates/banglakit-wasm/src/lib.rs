@@ -15,7 +15,9 @@
 //! `convert_run` is the function the Word.run loop calls; the other two are
 //! exposed so callers can build their own policies on top of the primitives.
 
-use banglakit_core::{classify, transliterate, Decision, Encoding, Mode, Stage};
+use banglakit_core::{
+    classify, convert_run, transliterate, ConvertOptions, Decision, Encoding, Mode, Stage,
+};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -143,7 +145,7 @@ pub fn classify_run(
 /// `Ambiguous` runs are left unchanged under `safe` mode and converted under
 /// `aggressive` mode — matching the CLI's behavior.
 #[wasm_bindgen(js_name = convertRun)]
-pub fn convert_run(
+pub fn convert_run_js(
     text: &str,
     font_name: Option<String>,
     encoding: Option<String>,
@@ -154,26 +156,30 @@ pub fn convert_run(
     let m = parse_mode(mode).map_err(|e| JsError::new(&e))?;
     let target_font = parse_unicode_font(unicode_font).map_err(|e| JsError::new(&e))?;
 
-    let c = classify(text, font_name.as_deref(), enc, m);
-    let (decision, decoded_encoding) = decision_label(c.decision);
-    let stage = stage_label(c.stage);
-
-    let should_convert = matches!(c.decision, Decision::AnsiBengali(_))
-        || (matches!(c.decision, Decision::Ambiguous) && matches!(m, Mode::Aggressive));
-
-    let (out_text, changed, suggested_font) = if should_convert {
-        (transliterate(text, enc), true, Some(target_font))
-    } else {
-        (text.to_string(), false, None)
+    // Route through the shared per-run policy in `banglakit-core`. This is
+    // the same code path the CLI's DOCX/PPTX visitor takes, and the same
+    // code path a future LibreOffice/UNO connector would take: classify,
+    // decide, transliterate. Host-specific iteration and commit live above
+    // this call; the decision itself is identical across hosts.
+    let opts = ConvertOptions {
+        encoding: enc,
+        mode: m,
+        threshold: None,
+        unicode_font: target_font,
     };
+    let r = convert_run(text, font_name.as_deref(), &opts);
+    let (decision, decoded_encoding) = decision_label(r.classification.decision);
+    // r.font borrows from `opts.unicode_font` (i.e. from `target_font`); use
+    // the original `&'static str` directly to satisfy ConversionJs's lifetime.
+    let suggested_font: Option<&'static str> = if r.changed { Some(target_font) } else { None };
 
     let out = ConversionJs {
-        text: out_text,
-        changed,
+        text: r.text,
+        changed: r.changed,
         decision,
         encoding: decoded_encoding,
-        stage,
-        confidence: c.confidence,
+        stage: stage_label(r.classification.stage),
+        confidence: r.classification.confidence,
         suggested_font,
     };
     serde_wasm_bindgen::to_value(&out).map_err(JsError::from)
