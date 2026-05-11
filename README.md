@@ -11,14 +11,21 @@ URLs in the process. `banglakit-converter` looks at run-level font metadata
 text, so a sentence like `Gas price is $5 today` is preserved byte-for-byte
 even when it sits next to Bijoy-encoded Bengali in the same file.
 
-This release (v0.1.0) ships:
+This release ships:
 
 - A pure-Rust core (`banglakit-core`) — transliterator + classifier with no
-  I/O dependencies.
-- A DOCX adapter (`banglakit-docx`) that streams runs through a visitor and
-  preserves all non-run zip entries byte-identically.
-- A CLI (`banglakit-converter`) that handles plain text on stdin/stdout
-  and `.docx` files end-to-end.
+  I/O dependencies. Hosts the shared `RunRef` / `RunVisitor` types used by
+  every format adapter.
+- A DOCX adapter (`banglakit-docx`) with full OOXML style cascade
+  resolution: a run inherits its font from `pPr/rPr`, then the paragraph
+  style chain (`pStyle` → `basedOn` → default paragraph style), then
+  `docDefaults`. When a converted run has no `w:rFonts`, one is injected so
+  the new font survives.
+- A PPTX adapter (`banglakit-pptx`) that walks every `ppt/slides/slideN.xml`
+  and rewrites `<a:r>` runs in place. Slide masters, layouts, theme, and
+  media are copied byte-for-byte.
+- A CLI (`banglakit-converter`) that dispatches on file extension and
+  handles plain text on stdin/stdout, `.docx`, and `.pptx`.
 
 Encodings beyond Bijoy (e.g. Boishakhi, Lekhoni) plug in via the
 `Encoding` enum without architectural changes.
@@ -47,7 +54,17 @@ DOCX:
     --audit article.audit.jsonl
 ```
 
+PPTX:
+
+```bash
+./target/release/banglakit-converter \
+    -i deck.pptx \
+    -o deck_unicode.pptx \
+    --audit deck.audit.jsonl
+```
+
 The audit file is newline-delimited JSON, one entry per processed run.
+PPTX entries also carry a `slide_index` field.
 
 ## How it works
 
@@ -112,7 +129,7 @@ Exit codes follow PRD FR-9:
 
 ```
 crates/
-├── banglakit-core/        # Pure Rust: transliterator + classifier
+├── banglakit-core/        # Pure Rust: transliterator + classifier + visitor
 │   ├── data/
 │   │   ├── bijoy/
 │   │   │   ├── mapping.toml      # Derived from avro.py (MIT)
@@ -126,11 +143,53 @@ crates/
 │       ├── normalize.rs          # reph, i-kar, e-kar, ya-phala
 │       ├── classifier.rs         # Five-stage classifier
 │       ├── fonts.rs              # Font allowlist matching
-│       └── english.rs            # English dictionary feature
-├── banglakit-docx/        # DOCX zip + quick-xml adapter
+│       ├── english.rs            # English dictionary feature
+│       ├── visitor.rs            # RunRef / RunAction / RunVisitor
+│       └── policy.rs             # convert_run — the cross-host boundary
+├── banglakit-docx/        # DOCX adapter: word/document.xml + word/styles.xml
+│   └── src/styles.rs              # Style-cascade resolution
+├── banglakit-pptx/        # PPTX adapter: walks ppt/slides/slideN.xml
 ├── banglakit-cli/         # `banglakit-converter` binary
 └── banglakit-wasm/        # wasm-bindgen surface for browsers / Office Add-ins
 ```
+
+### Cross-platform run policy
+
+Every host — the CLI's DOCX/PPTX visitor, the WASM bindings used by
+Office.js (Word, PowerPoint, Excel Add-ins), and any future LibreOffice /
+Apache OpenOffice connector — calls one canonical function per run:
+`banglakit_core::convert_run(text, font_hint, &opts) -> ConvertedRun`.
+The classifier, the transliterator, and the safe / aggressive / threshold
+policy live behind that one call. Hosts differ only in *how they iterate
+runs* and *how they commit changes*:
+
+```
+                   ┌────────────────────────────────┐
+                   │  banglakit-core::policy        │
+                   │                                │
+                   │  convert_run(text, font, opts) │
+                   │    → ConvertedRun {            │
+                   │        text, font, changed,    │
+                   │        classification          │
+                   │    }                           │
+                   └────────────┬───────────────────┘
+                                │ called once per run
+     ┌──────────────────────────┼────────────────────────────┐
+     │                          │                            │
+┌────▼──────────┐  ┌────────────▼──────────┐    ┌────────────▼──────────┐
+│ CLI visitor   │  │ WASM convertRun       │    │ LibreOffice UNO       │
+│ (file path)   │  │ (JS / Office.js)      │    │ (future, Java/Python) │
+│               │  │                       │    │                       │
+│ quick-xml     │  │ Office.js Word.Range  │    │ UNO TextPortion       │
+│ event stream  │  │ iteration             │    │ enumeration           │
+└───────────────┘  └───────────────────────┘    └───────────────────────┘
+```
+
+Adding a new host means writing the small layer below the dashed line —
+iterate the host's native runs, call `convert_run`, apply the
+`ConvertedRun`. The XML state machines in `banglakit-docx` and
+`banglakit-pptx` deliberately stay format-specific; Office.js and UNO
+don't see XML, so the OOXML walker isn't worth generalizing across them.
 
 ## Office Add-in path
 
@@ -153,22 +212,25 @@ To add Boishakhi or Lekhoni support:
 The transliterator and classifier are encoding-parameterized; no other
 changes are required.
 
-## Out of scope (v0.1.0)
+## Out of scope (current release)
 
 These items are documented in the PRD/SDD and deferred:
 
 - Python wheel via PyO3/maturin.
 - ~~WASM build~~ — see `crates/banglakit-wasm/` (Stage 1 of the Office
   Add-in path). npm package and mobile (UniFFI) bindings still deferred.
-- PPTX, RTF, HTML, PDF, clipboard adapters.
+- RTF, HTML, PDF, clipboard adapters.
 - ANSI encoding families beyond Bijoy.
 - Trained logistic-regression / fastText LID fallback (Stage 5 of SDD §4).
   Replaced with a rule-based weighted-sum sigmoid using PRD-documented
   per-feature thresholds.
-- Full DOCX style-cascade resolution (run inherits font from paragraph
-  style / docDefaults). v0.1.0 reads run-level font only; missing-font
-  runs fall through to heuristic scoring.
-- DOCX `--dry-run`.
+- PPTX style cascade (shape → layout → master → theme). v0.2 reads
+  run-level fonts only; missing-font runs fall through to heuristic
+  scoring. Theme-font references like `+mn-lt` are also not resolved.
+- DOCX theme-font resolution. The DOCX style cascade handles direct
+  `w:rFonts/@w:ascii` declarations but not the theme-indirect
+  `w:asciiTheme="minorHAnsi"` form used by modern Word.
+- DOCX / PPTX `--dry-run`.
 
 ## Acknowledgements & licenses
 

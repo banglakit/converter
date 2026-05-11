@@ -3,12 +3,13 @@ resolver = "2"
 members = [
     "crates/banglakit-core",
     "crates/banglakit-docx",
+    "crates/banglakit-pptx",
     "crates/banglakit-cli",
     "crates/banglakit-wasm",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/banglakit/converter"
