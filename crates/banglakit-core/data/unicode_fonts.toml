@@ -1,0 +1,23 @@
+# Unicode Bengali font names. Runs whose font name matches any of these
+# entries (case-insensitive substring) are skipped: they already render
+# Unicode Bengali correctly.
+# Sources: omicronlab.com/bangla-fonts, fontsource Noto Sans Bengali.
+
+unicode_fonts = [
+    "Kalpurush",
+    "Nikosh",
+    "NikoshBAN",
+    "NikoshGrameen",
+    "NikoshLight",
+    "SolaimanLipi",
+    "Siyam Rupali",
+    "SiyamRupali",
+    "Vrinda",
+    "Shonar Bangla",
+    "Noto Sans Bengali",
+    "Noto Serif Bengali",
+    "Hind Siliguri",
+    "Mukti",
+    "Lohit Bengali",
+    "Akaash",
+]
