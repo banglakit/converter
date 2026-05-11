@@ -210,6 +210,9 @@ fn transform_document_xml<V: RunVisitor>(
                         //   their left neighbour.
                         merge_unicode_combining_runs(&mut paragraph_runs, &mut converted);
 
+                        // (Phase 4 removed — the Phase 3 conjunct merge handles
+                        //  most cross-run pre-base issues without duplicating vowels.)
+
                         // Emit.
                         for (rb, cr) in paragraph_runs.drain(..).zip(converted.drain(..)) {
                             write_converted_run(&mut writer, rb, cr)?;
@@ -653,7 +656,19 @@ fn merge_unicode_combining_runs(
             continue;
         }
         let first_char = text_i.chars().next().unwrap();
-        if !is_bengali_combining(first_char) {
+        // Merge if run starts with combining mark OR if previous run ends
+        // with hasanta and this run starts with a consonant (forming a conjunct).
+        let starts_combining = is_bengali_combining(first_char);
+        let completes_conjunct = matches!(first_char,
+            '\u{0995}'..='\u{09B9}' | '\u{09DC}' | '\u{09DD}' | '\u{09DF}'
+        ) && {
+            // Check if previous non-suppressed run ends with hasanta.
+            let mut prev = if i > 0 { i - 1 } else { 0 };
+            while prev > 0 && converted[prev].suppress { prev -= 1; }
+            let pt = effective_text(&runs[prev], &converted[prev]);
+            pt.ends_with('\u{09CD}')
+        };
+        if !starts_combining && !completes_conjunct {
             continue;
         }
 
@@ -699,6 +714,80 @@ fn merge_unicode_combining_runs(
             converted[j].new_font = converted[i].new_font.clone();
         }
         converted[i].suppress = true;
+    }
+}
+
+/// Fix cross-run pre-base vowel ordering: when a run ends with a pre-base
+/// vowel sign (ি, ে, ৈ) and the next run starts with a consonant cluster,
+/// move the vowel sign into the next run after the cluster.
+fn fix_cross_run_prebase(runs: &[RunBuffer], converted: &mut [ConvertedRunResult]) {
+    if runs.len() < 2 {
+        return;
+    }
+
+    for i in 0..runs.len() - 1 {
+        if converted[i].suppress {
+            continue;
+        }
+        let text_i = effective_text_ref(runs, converted, i);
+        if text_i.is_empty() {
+            continue;
+        }
+        let last = text_i.chars().last().unwrap();
+        if !matches!(last, '\u{09BF}' | '\u{09C7}' | '\u{09C8}') {
+            continue;
+        }
+
+        // Find next non-suppressed run.
+        let mut j = i + 1;
+        while j < runs.len() && converted[j].suppress {
+            j += 1;
+        }
+        if j >= runs.len() {
+            continue;
+        }
+
+        let text_j = effective_text_ref(runs, converted, j);
+        if text_j.is_empty() {
+            continue;
+        }
+        let first_j = text_j.chars().next().unwrap();
+        if !matches!(first_j, '\u{0995}'..='\u{09B9}' | '\u{09DC}' | '\u{09DD}' | '\u{09DF}') {
+            continue;
+        }
+
+        // Strip vowel from end of run i.
+        let new_i: String = text_i.chars().take(text_i.chars().count() - 1).collect();
+
+        // Insert vowel after the consonant cluster in run j.
+        let chars_j: Vec<char> = text_j.chars().collect();
+        let mut insert_pos = 1;
+        while insert_pos + 1 < chars_j.len()
+            && chars_j[insert_pos] == '\u{09CD}'
+            && matches!(
+                chars_j.get(insert_pos + 1),
+                Some('\u{0995}'..='\u{09B9}') | Some('\u{09DC}') | Some('\u{09DD}') | Some('\u{09DF}')
+            )
+        {
+            insert_pos += 2;
+        }
+        let mut new_j = String::with_capacity(text_j.len() + 4);
+        new_j.extend(chars_j[..insert_pos].iter());
+        new_j.push(last);
+        new_j.extend(chars_j[insert_pos..].iter());
+
+        // Apply subjoiner_reorder on the modified run to fix any remaining issues.
+        let new_j = banglakit_core::normalize::subjoiner_reorder(&new_j);
+
+        converted[i].new_text = Some(new_i);
+        converted[j].new_text = Some(new_j);
+    }
+}
+
+fn effective_text_ref(runs: &[RunBuffer], converted: &[ConvertedRunResult], i: usize) -> String {
+    match &converted[i].new_text {
+        Some(t) => t.clone(),
+        None => extract_text_from_events(&runs[i].events),
     }
 }
 
