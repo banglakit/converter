@@ -3,6 +3,11 @@
 A lossless, font-aware converter for legacy ANSI/ASCII-encoded Bengali text
 (Bijoy / SutonnyMJ family) to standard Unicode Bengali (U+0980–U+09FF).
 
+**Try it in your browser:** <https://banglakit.com/converter/> — drag a
+`.docx`, `.pptx`, or plain-text file onto the page and download the
+converted result. All conversion runs client-side via WebAssembly; files
+never leave your machine.
+
 The defining design choice is **per-run, font-aware classification**: every
 existing tool surveyed in the PRD applies a Bijoy-to-Unicode substitution
 table indiscriminately to the entire document, mangling English text and
@@ -15,19 +20,29 @@ This release ships:
 
 - A pure-Rust core (`banglakit-core`) — transliterator + classifier with no
   I/O dependencies. Hosts the shared `RunRef` / `RunVisitor` types used by
-  every format adapter.
+  every format adapter, plus the canonical `convert_run` policy and the
+  `DefaultRunVisitor` reused by every host.
 - A DOCX adapter (`banglakit-docx`) with full OOXML font resolution: a
   run inherits its font from `pPr/rPr`, then the paragraph style chain
   (`pStyle` → `basedOn` → default paragraph style), then `docDefaults`.
   Each `<w:rFonts>` element is theme-aware: `w:asciiTheme="minorHAnsi"`
   references resolve through `word/theme/theme1.xml`, which is what
   modern Word output uses for its default font. When a converted run has
-  no `w:rFonts`, one is injected so the new font survives.
+  no `w:rFonts`, one is injected so the new font survives. Both path-based
+  (`process_docx`) and in-memory (`process_docx_bytes`) entry points are
+  exposed so the same code converts files on disk and in a browser tab.
 - A PPTX adapter (`banglakit-pptx`) that walks every `ppt/slides/slideN.xml`
   and rewrites `<a:r>` runs in place. Slide masters, layouts, theme, and
-  media are copied byte-for-byte.
+  media are copied byte-for-byte. Same path / bytes pair as the DOCX
+  adapter.
 - A CLI (`banglakit-converter`) that dispatches on file extension and
   handles plain text on stdin/stdout, `.docx`, and `.pptx`.
+- A WASM crate (`banglakit-wasm`) exposing `transliterateRun`,
+  `classifyRun`, `convertRun`, `convertDocx`, `convertPptx`, and
+  `convertText` to JavaScript — the same JS surface the browser
+  converter and a future Office Add-in build on.
+- A static browser app (`web/`) deployed to GitHub Pages on every push to
+  `main`. See [Continuous integration](#continuous-integration) below.
 
 Encodings beyond Bijoy (e.g. Boishakhi, Lekhoni) plug in via the
 `Encoding` enum without architectural changes.
@@ -153,6 +168,16 @@ crates/
 ├── banglakit-pptx/        # PPTX adapter: walks ppt/slides/slideN.xml
 ├── banglakit-cli/         # `banglakit-converter` binary
 └── banglakit-wasm/        # wasm-bindgen surface for browsers / Office Add-ins
+
+web/                      # Static browser app deployed to GitHub Pages
+├── index.html              # Drag-and-drop drop zone + paste-text demo
+├── app.js                  # File dispatch: .docx → convertDocx, .pptx → convertPptx, .txt → convertText
+└── style.css
+
+.github/workflows/
+├── ci.yml                  # cargo test + wasm32 check on every push/PR;
+│                           # uploads Linux CLI artifact on main
+└── pages.yml               # Builds banglakit-wasm and deploys web/ to Pages
 ```
 
 ### Cross-platform run policy
@@ -193,13 +218,52 @@ iterate the host's native runs, call `convert_run`, apply the
 `banglakit-pptx` deliberately stay format-specific; Office.js and UNO
 don't see XML, so the OOXML walker isn't worth generalizing across them.
 
+## Browser converter
+
+The static site at [`web/`](web/) is what's deployed to
+<https://banglakit.com/converter/>. It is a vanilla-JS module — no
+framework, no bundler — that loads `banglakit-wasm` via `wasm-pack --target
+web` and exposes drag-and-drop file conversion for DOCX, PPTX, and plain
+text. All work happens in the user's tab; nothing is uploaded.
+
+Run it locally:
+
+```bash
+wasm-pack build crates/banglakit-wasm --target web --release \
+    --out-dir ../../web/pkg
+python3 -m http.server --directory web 8080
+# open http://localhost:8080/
+```
+
+The minimal text-only harness at
+[`examples/wasm-demo/`](examples/wasm-demo/) still exists for hacking on
+the classifier in isolation.
+
 ## Office Add-in path
 
 For the Word / Excel / PowerPoint Add-in roadmap, the WASM bindings, and a
 scaffold of the Word task-pane project, see
-[`docs/PATH-TO-OFFICE-ADDINS.md`](docs/PATH-TO-OFFICE-ADDINS.md). The browser
-demo lives at [`examples/wasm-demo/`](examples/wasm-demo/) and the Office
-scaffold at [`examples/word-addin/`](examples/word-addin/).
+[`docs/PATH-TO-OFFICE-ADDINS.md`](docs/PATH-TO-OFFICE-ADDINS.md). The Office
+scaffold lives at [`examples/word-addin/`](examples/word-addin/) and shares
+the same `convertRun` entry point the browser app calls per text run.
+
+## Continuous integration
+
+Two GitHub Actions workflows under [`.github/workflows/`](.github/workflows/):
+
+- **`ci.yml`** — runs `cargo test --workspace` and
+  `cargo check --target wasm32-unknown-unknown -p banglakit-wasm` on every
+  push and pull request. On pushes to `main`, additionally builds a
+  release of `banglakit-converter` for Linux x86_64 and uploads it as a
+  workflow artifact (`banglakit-converter-linux-x86_64`).
+- **`pages.yml`** — on pushes to `main`, builds `banglakit-wasm` with
+  `wasm-pack --target web --release`, then deploys `web/` (with the
+  generated `web/pkg/`) to GitHub Pages. `wasm-opt` is intentionally
+  *not* run: binaryen's `-Oz` pass strips the externref-table grow
+  capability that the wasm-bindgen 0.2.121 init code depends on.
+
+To enable Pages on a fresh fork: **Settings → Pages → Source: GitHub
+Actions**.
 
 ## Extending to other ANSI encodings
 
@@ -219,8 +283,10 @@ changes are required.
 These items are documented in the PRD/SDD and deferred:
 
 - Python wheel via PyO3/maturin.
-- ~~WASM build~~ — see `crates/banglakit-wasm/` (Stage 1 of the Office
-  Add-in path). npm package and mobile (UniFFI) bindings still deferred.
+- ~~WASM build~~ — `crates/banglakit-wasm/` ships text + DOCX + PPTX
+  entry points; the browser app at `web/` consumes them. npm package
+  publication and mobile (UniFFI) bindings still deferred.
+- ~~Browser file conversion~~ — live at <https://banglakit.com/converter/>.
 - RTF, HTML, PDF, clipboard adapters.
 - ANSI encoding families beyond Bijoy.
 - Trained logistic-regression / fastText LID fallback (Stage 5 of SDD §4).
