@@ -93,6 +93,11 @@ struct Cli {
     /// Print per-run classifier signals to stderr.
     #[arg(long)]
     explain: bool,
+
+    /// Auto-match Bijoy fonts to their OMJ Unicode counterpart (e.g.
+    /// SutonnyMJ → SutonnyOMJ) instead of using --unicode-font for all runs.
+    #[arg(long)]
+    auto_match_fonts: bool,
 }
 
 fn main() -> ExitCode {
@@ -208,6 +213,7 @@ fn process_text_input(
         mode,
         threshold: Some(threshold),
         unicode_font: &cli.unicode_font,
+        auto_match_fonts: cli.auto_match_fonts,
     };
     let result = convert_run(input_str, None, &opts);
     maybe_explain(
@@ -291,6 +297,7 @@ fn process_docx_input(
         mode: cli.mode.into(),
         threshold,
         unicode_font: cli.unicode_font.clone(),
+        auto_match_fonts: cli.auto_match_fonts,
         explain: cli.explain,
         any_change: false,
         audit_sink,
@@ -320,6 +327,7 @@ fn process_pptx_input(
         mode: cli.mode.into(),
         threshold,
         unicode_font: cli.unicode_font.clone(),
+        auto_match_fonts: cli.auto_match_fonts,
         explain: cli.explain,
         any_change: false,
         audit_sink,
@@ -336,6 +344,7 @@ struct OoxmlVisitor<'a> {
     mode: Mode,
     threshold: f32,
     unicode_font: String,
+    auto_match_fonts: bool,
     explain: bool,
     any_change: bool,
     audit_sink: &'a mut Option<AuditSink>,
@@ -348,6 +357,7 @@ impl<'a> RunVisitor for OoxmlVisitor<'a> {
             mode: self.mode,
             threshold: Some(self.threshold),
             unicode_font: &self.unicode_font,
+            auto_match_fonts: self.auto_match_fonts,
         };
         let result = convert_run(run.text, run.font_name, &opts);
         let c = &result.classification;

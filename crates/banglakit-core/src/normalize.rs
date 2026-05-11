@@ -226,10 +226,7 @@ pub fn subjoiner_reorder(input: &str) -> String {
             let kar = chars[i];
             // Collect all hasanta+consonant pairs
             let mut j = i + 1;
-            while j + 1 < chars.len()
-                && chars[j] == HASANTA
-                && is_bengali_consonant(chars[j + 1])
-            {
+            while j + 1 < chars.len() && chars[j] == HASANTA && is_bengali_consonant(chars[j + 1]) {
                 out.push(chars[j]);
                 out.push(chars[j + 1]);
                 j += 2;

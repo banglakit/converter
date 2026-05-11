@@ -198,7 +198,12 @@ fn transform_document_xml<V: RunVisitor>(
                         // End of paragraph: three-phase pipeline.
                         // Phase 1: merge orphaned Bijoy combining-mark runs
                         //   before conversion (pre-base ‡†ˆ‰w → next, post-base ©Š → prev).
-                        merge_orphaned_bijoy_runs(&mut paragraph_runs, stylesheet, &paragraph_ctx, theme);
+                        merge_orphaned_bijoy_runs(
+                            &mut paragraph_runs,
+                            stylesheet,
+                            &paragraph_ctx,
+                            theme,
+                        );
 
                         // Phase 2: convert runs through the visitor.
                         //   Adjacent same-font Bijoy runs are grouped and
@@ -593,7 +598,13 @@ fn convert_paragraph_runs<V: RunVisitor>(
         if !is_bijoy_font(font_i) {
             // Non-Bijoy run: convert individually.
             converted[i] = convert_run_buffer(
-                &runs[i], paragraph_index, i, paragraph, stylesheet, theme, visitor,
+                &runs[i],
+                paragraph_index,
+                i,
+                paragraph,
+                stylesheet,
+                theme,
+                visitor,
             );
             i += 1;
             continue;
@@ -613,7 +624,13 @@ fn convert_paragraph_runs<V: RunVisitor>(
         if group_end == group_start + 1 {
             // Single Bijoy run: convert individually.
             converted[i] = convert_run_buffer(
-                &runs[i], paragraph_index, i, paragraph, stylesheet, theme, visitor,
+                &runs[i],
+                paragraph_index,
+                i,
+                paragraph,
+                stylesheet,
+                theme,
+                visitor,
             );
             i += 1;
             continue;
@@ -776,12 +793,15 @@ fn merge_unicode_combining_runs(
         // Merge if run starts with combining mark OR if previous run ends
         // with hasanta and this run starts with a consonant (forming a conjunct).
         let starts_combining = is_bengali_combining(first_char);
-        let completes_conjunct = matches!(first_char,
+        let completes_conjunct = matches!(
+            first_char,
             '\u{0995}'..='\u{09B9}' | '\u{09DC}' | '\u{09DD}' | '\u{09DF}'
         ) && {
             // Check if previous non-suppressed run ends with hasanta.
             let mut prev = if i > 0 { i - 1 } else { 0 };
-            while prev > 0 && converted[prev].suppress { prev -= 1; }
+            while prev > 0 && converted[prev].suppress {
+                prev -= 1;
+            }
             let pt = effective_text(&runs[prev], &converted[prev]);
             pt.ends_with('\u{09CD}')
         };
@@ -812,7 +832,8 @@ fn merge_unicode_combining_runs(
         // content (a consonant, vowel sign, or other Bengali character).
         // This prevents merging a combining mark onto a Latin/number run.
         let last_char_j = text_j.chars().last().unwrap();
-        let is_bengali_context = matches!(last_char_j,
+        let is_bengali_context = matches!(
+            last_char_j,
             '\u{0980}'..='\u{09FF}' // Bengali block
         );
         if !is_bengali_context {
@@ -869,7 +890,10 @@ fn fix_cross_run_prebase(runs: &[RunBuffer], converted: &mut [ConvertedRunResult
             continue;
         }
         let first_j = text_j.chars().next().unwrap();
-        if !matches!(first_j, '\u{0995}'..='\u{09B9}' | '\u{09DC}' | '\u{09DD}' | '\u{09DF}') {
+        if !matches!(
+            first_j,
+            '\u{0995}'..='\u{09B9}' | '\u{09DC}' | '\u{09DD}' | '\u{09DF}'
+        ) {
             continue;
         }
 
@@ -883,7 +907,10 @@ fn fix_cross_run_prebase(runs: &[RunBuffer], converted: &mut [ConvertedRunResult
             && chars_j[insert_pos] == '\u{09CD}'
             && matches!(
                 chars_j.get(insert_pos + 1),
-                Some('\u{0995}'..='\u{09B9}') | Some('\u{09DC}') | Some('\u{09DD}') | Some('\u{09DF}')
+                Some('\u{0995}'..='\u{09B9}')
+                    | Some('\u{09DC}')
+                    | Some('\u{09DD}')
+                    | Some('\u{09DF}')
             )
         {
             insert_pos += 2;
@@ -1282,7 +1309,11 @@ mod tests {
         })
         .unwrap();
         // After merge the visitor should see one run with the combined text.
-        assert_eq!(seen_texts.len(), 1, "orphan run should be merged: {seen_texts:?}");
+        assert_eq!(
+            seen_texts.len(),
+            1,
+            "orphan run should be merged: {seen_texts:?}"
+        );
         assert_eq!(seen_texts[0], "‡`k");
     }
 
@@ -1312,7 +1343,11 @@ mod tests {
             RunAction::Keep
         })
         .unwrap();
-        assert_eq!(seen_texts.len(), 1, "orphan run should be merged: {seen_texts:?}");
+        assert_eq!(
+            seen_texts.len(),
+            1,
+            "orphan run should be merged: {seen_texts:?}"
+        );
         assert_eq!(seen_texts[0], "Kv©");
     }
 
@@ -1342,7 +1377,11 @@ mod tests {
             RunAction::Keep
         })
         .unwrap();
-        assert_eq!(seen_texts.len(), 2, "should NOT merge across fonts: {seen_texts:?}");
+        assert_eq!(
+            seen_texts.len(),
+            2,
+            "should NOT merge across fonts: {seen_texts:?}"
+        );
     }
 
     #[test]
@@ -1371,7 +1410,11 @@ mod tests {
             RunAction::Keep
         })
         .unwrap();
-        assert_eq!(seen_texts.len(), 2, "should NOT merge non-Bijoy fonts: {seen_texts:?}");
+        assert_eq!(
+            seen_texts.len(),
+            2,
+            "should NOT merge non-Bijoy fonts: {seen_texts:?}"
+        );
     }
 
     #[test]
@@ -1405,8 +1448,16 @@ mod tests {
         })
         .unwrap();
         // run1 (‡) merges into run2 (‰), then ‡‰ merges into run3.
-        assert_eq!(seen_texts.len(), 1, "chained orphans should merge: {seen_texts:?}");
-        assert!(seen_texts[0].starts_with("‡"), "merged text: {}", seen_texts[0]);
+        assert_eq!(
+            seen_texts.len(),
+            1,
+            "chained orphans should merge: {seen_texts:?}"
+        );
+        assert!(
+            seen_texts[0].starts_with("‡"),
+            "merged text: {}",
+            seen_texts[0]
+        );
     }
 
     #[test]
@@ -1434,14 +1485,15 @@ mod tests {
   </w:body>
 </w:document>"#;
         let sheet = Stylesheet::default();
-        use banglakit_core::policy::{convert_run, ConvertOptions};
         use banglakit_core::classifier::Mode;
         use banglakit_core::encoding::Encoding;
+        use banglakit_core::policy::{convert_run, ConvertOptions};
         let opts = ConvertOptions {
             encoding: Encoding::Bijoy,
             mode: Mode::Safe,
             threshold: None,
             unicode_font: "Kalpurush",
+            auto_match_fonts: false,
         };
         let out = transform_document_xml(xml, &sheet, None, &mut |run: RunRef<'_>| {
             RunAction::from(convert_run(run.text, run.font_name, &opts))

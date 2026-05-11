@@ -18,6 +18,7 @@ function options() {
     mode: $("mode").value,
     encoding: "bijoy",
     unicodeFont: $("unicodeFont").value,
+    autoMatchFonts: $("autoMatchFonts").checked,
   };
 }
 
@@ -54,17 +55,17 @@ async function handleFile(file) {
   try {
     if (name.endsWith(".docx")) {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const result = convertDocx(bytes, opts.mode, opts.encoding, opts.unicodeFont);
+      const result = convertDocx(bytes, opts.mode, opts.encoding, opts.unicodeFont, opts.autoMatchFonts);
       downloadBlob(result.bytes, DOCX_MIME, outputName(file.name, "docx"));
       reportFileResult(file.name, result);
     } else if (name.endsWith(".pptx")) {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const result = convertPptx(bytes, opts.mode, opts.encoding, opts.unicodeFont);
+      const result = convertPptx(bytes, opts.mode, opts.encoding, opts.unicodeFont, opts.autoMatchFonts);
       downloadBlob(result.bytes, PPTX_MIME, outputName(file.name, "pptx"));
       reportFileResult(file.name, result);
     } else if (name.endsWith(".txt") || name.endsWith(".md") || file.type.startsWith("text/")) {
       const text = await file.text();
-      const result = convertText(text, opts.mode, opts.encoding, opts.unicodeFont);
+      const result = convertText(text, opts.mode, opts.encoding, opts.unicodeFont, opts.autoMatchFonts);
       downloadBlob(result.text, "text/plain;charset=utf-8", outputName(file.name, "txt"));
       reportFileResult(file.name, { anyChange: result.changed, runsConverted: result.runs_converted });
     } else {
@@ -122,7 +123,7 @@ function wireTextarea() {
     const opts = options();
     const lines = $("textin").value.split(/\r?\n/);
     const out = lines.map((line) => {
-      const r = convertText(line, opts.mode, opts.encoding, opts.unicodeFont);
+      const r = convertText(line, opts.mode, opts.encoding, opts.unicodeFont, opts.autoMatchFonts);
       return r.text;
     });
     $("textout").textContent = out.join("\n");
@@ -132,6 +133,7 @@ function wireTextarea() {
   );
   $("mode").addEventListener("change", render);
   $("unicodeFont").addEventListener("change", render);
+  $("autoMatchFonts").addEventListener("change", render);
   render();
 }
 

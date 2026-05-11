@@ -21,6 +21,7 @@
 
 use crate::classifier::{classify, Classification, Decision, Mode};
 use crate::encoding::Encoding;
+use crate::fonts::resolve_matched_font;
 use crate::transliterate::transliterate;
 
 /// Tunable inputs to the per-run policy. Borrows `unicode_font` so a host
@@ -36,6 +37,10 @@ pub struct ConvertOptions<'a> {
     /// The Unicode Bengali font the host should write back when a run is
     /// converted. Borrowed from the caller.
     pub unicode_font: &'a str,
+    /// When `true`, attempt to map the input Bijoy font to its OMJ Unicode
+    /// counterpart (e.g. SutonnyMJ → SutonnyOMJ). Falls back to
+    /// `unicode_font` when no match is found.
+    pub auto_match_fonts: bool,
 }
 
 /// The result of running [`convert_run`] on a single run.
@@ -73,9 +78,16 @@ pub fn convert_run<'a>(
 
     if should_convert {
         let new_text = transliterate(text, opts.encoding);
+        let target_font = if opts.auto_match_fonts {
+            font_hint
+                .and_then(|fh| resolve_matched_font(fh, opts.encoding))
+                .unwrap_or(opts.unicode_font)
+        } else {
+            opts.unicode_font
+        };
         ConvertedRun {
             text: new_text,
-            font: Some(opts.unicode_font),
+            font: Some(target_font),
             changed: true,
             classification: c,
         }
@@ -99,6 +111,7 @@ mod tests {
             mode,
             threshold: None,
             unicode_font: font,
+            auto_match_fonts: false,
         }
     }
 
@@ -147,6 +160,7 @@ mod tests {
             mode: Mode::Safe,
             threshold: Some(0.95),
             unicode_font: "Kalpurush",
+            auto_match_fonts: false,
         };
         let r = convert_run("Avwg", None, &o);
         // The classifier may rate this as Ambiguous or even AnsiBengali
@@ -176,6 +190,7 @@ mod tests {
             mode: Mode::Safe,
             threshold: Some(0.50),
             unicode_font: "Kalpurush",
+            auto_match_fonts: false,
         };
         let r = convert_run("Avwg evsjvq Mvb MvB|", None, &o);
         assert!(r.changed);

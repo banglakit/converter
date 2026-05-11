@@ -54,7 +54,7 @@ struct ConversionJs {
     encoding: Option<&'static str>,
     stage: &'static str,
     confidence: f32,
-    suggested_font: Option<&'static str>,
+    suggested_font: Option<String>,
 }
 
 fn parse_mode(mode: Option<String>) -> Result<Mode, String> {
@@ -140,26 +140,25 @@ pub fn convert_run_js(
     encoding: Option<String>,
     mode: Option<String>,
     unicode_font: Option<String>,
+    auto_match_fonts: Option<bool>,
 ) -> Result<JsValue, JsError> {
     let enc = parse_encoding(encoding).map_err(|e| JsError::new(&e))?;
     let m = parse_mode(mode).map_err(|e| JsError::new(&e))?;
     let target_font = parse_unicode_font(unicode_font).map_err(|e| JsError::new(&e))?;
 
-    // Route through the shared per-run policy in `banglakit-core`. This is
-    // the same code path the CLI's DOCX/PPTX visitor takes, and the same
-    // code path a future LibreOffice/UNO connector would take: classify,
-    // decide, transliterate. Host-specific iteration and commit live above
-    // this call; the decision itself is identical across hosts.
     let opts = ConvertOptions {
         encoding: enc,
         mode: m,
         threshold: None,
         unicode_font: target_font,
+        auto_match_fonts: auto_match_fonts.unwrap_or(false),
     };
     let r = convert_run(text, font_name.as_deref(), &opts);
-    // r.font borrows from `opts.unicode_font` (i.e. from `target_font`); use
-    // the original `&'static str` directly to satisfy ConversionJs's lifetime.
-    let suggested_font: Option<&'static str> = if r.changed { Some(target_font) } else { None };
+    let suggested_font: Option<String> = if r.changed {
+        Some(r.font.unwrap_or(target_font).to_string())
+    } else {
+        None
+    };
 
     let out = ConversionJs {
         text: r.text,
@@ -190,6 +189,7 @@ fn build_opts(
     encoding: Option<String>,
     mode: Option<String>,
     unicode_font: Option<String>,
+    auto_match_fonts: Option<bool>,
 ) -> Result<ConvertOptions<'static>, JsError> {
     let enc = parse_encoding(encoding).map_err(|e| JsError::new(&e))?;
     let m = parse_mode(mode).map_err(|e| JsError::new(&e))?;
@@ -199,6 +199,7 @@ fn build_opts(
         mode: m,
         threshold: None,
         unicode_font: target_font,
+        auto_match_fonts: auto_match_fonts.unwrap_or(false),
     })
 }
 
@@ -211,8 +212,9 @@ pub fn convert_docx(
     mode: Option<String>,
     encoding: Option<String>,
     unicode_font: Option<String>,
+    auto_match_fonts: Option<bool>,
 ) -> Result<JsValue, JsError> {
-    let opts = build_opts(encoding, mode, unicode_font)?;
+    let opts = build_opts(encoding, mode, unicode_font, auto_match_fonts)?;
     let mut visitor = DefaultRunVisitor::new(opts);
     let out = banglakit_docx::process_docx_bytes(bytes, &mut visitor)
         .map_err(|e| JsError::new(&format!("{e:#}")))?;
@@ -230,8 +232,9 @@ pub fn convert_pptx(
     mode: Option<String>,
     encoding: Option<String>,
     unicode_font: Option<String>,
+    auto_match_fonts: Option<bool>,
 ) -> Result<JsValue, JsError> {
-    let opts = build_opts(encoding, mode, unicode_font)?;
+    let opts = build_opts(encoding, mode, unicode_font, auto_match_fonts)?;
     let mut visitor = DefaultRunVisitor::new(opts);
     let out = banglakit_pptx::process_pptx_bytes(bytes, &mut visitor)
         .map_err(|e| JsError::new(&format!("{e:#}")))?;
@@ -251,8 +254,9 @@ pub fn convert_text(
     mode: Option<String>,
     encoding: Option<String>,
     unicode_font: Option<String>,
+    auto_match_fonts: Option<bool>,
 ) -> Result<JsValue, JsError> {
-    let opts = build_opts(encoding, mode, unicode_font)?;
+    let opts = build_opts(encoding, mode, unicode_font, auto_match_fonts)?;
     let r = convert_run(text, None, &opts);
     let result = TextConversionJs {
         text: r.text,

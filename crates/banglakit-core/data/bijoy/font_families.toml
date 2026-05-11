@@ -1,0 +1,489 @@
+# Bijoy font family stems → OMJ target + style class.
+# Generated from BijoyEkattor font inventory.
+# stem: case-insensitive prefix after stripping MJ/XMJ/CMJ/EMJ/etc. suffixes
+# omj: target OMJ Unicode font (omitted if family has no OMJ variant)
+# class: "serif" or "sans" — used for fallback font selection
+
+# --- Families WITH OMJ variant (67) ---
+
+[[family]]
+stem = "sutonny"
+omj = "SutonnyOMJ"
+class = "serif"
+
+[[family]]
+stem = "adorsholipi"
+omj = "AdorshoLipiOMJ"
+class = "serif"
+
+[[family]]
+stem = "aponarabindra"
+omj = "AponaRabindraOMJ"
+class = "serif"
+
+[[family]]
+stem = "aponanazrul"
+omj = "AponaNazrulOMJ"
+class = "serif"
+
+[[family]]
+stem = "aponalohit"
+omj = "AponaLohitOMJ"
+class = "serif"
+
+[[family]]
+stem = "bangla"
+omj = "BanglaOMJ"
+class = "serif"
+
+[[family]]
+stem = "bengali"
+omj = "BengaliOMJ"
+class = "serif"
+
+[[family]]
+stem = "bondhushree"
+omj = "BondhushreeOMJ"
+class = "serif"
+
+[[family]]
+stem = "borhan"
+omj = "BorhanOMJ"
+class = "serif"
+
+[[family]]
+stem = "buriganga"
+omj = "BurigangaOMJ"
+class = "serif"
+
+[[family]]
+stem = "chandrabati"
+omj = "ChandrabatiOMJ"
+class = "serif"
+
+[[family]]
+stem = "charu"
+omj = "CharuOMJ"
+class = "serif"
+
+[[family]]
+stem = "charuchandan"
+omj = "CharuChandanOMJ"
+class = "serif"
+
+[[family]]
+stem = "charumukti"
+omj = "CharuMuktiOMJ"
+class = "serif"
+
+[[family]]
+stem = "dhanshiri"
+omj = "DhanshiriOMJ"
+class = "serif"
+
+[[family]]
+stem = "durga"
+omj = "DurgaOMJ"
+class = "serif"
+
+[[family]]
+stem = "godhuli"
+omj = "GodhuliOMJ"
+class = "serif"
+
+[[family]]
+stem = "himadri"
+omj = "HimadriOMJ"
+class = "serif"
+
+[[family]]
+stem = "jajadi"
+omj = "JaJaDiOMJ"
+class = "sans"
+
+[[family]]
+stem = "jugantoruni"
+omj = "JugantorUniOMJ"
+class = "serif"
+
+[[family]]
+stem = "jugantor"
+omj = "JugantorOMJ"
+class = "serif"
+
+[[family]]
+stem = "kailashman"
+omj = "KailashmanOMJ"
+class = "serif"
+
+[[family]]
+stem = "kobirneel"
+omj = "KobirNeelOMJ"
+class = "serif"
+
+[[family]]
+stem = "komakhya"
+omj = "KomakhyaOMJ"
+class = "serif"
+
+[[family]]
+stem = "kotha"
+omj = "KothaOMJ"
+class = "serif"
+
+[[family]]
+stem = "lal"
+omj = "LalOMJ"
+class = "serif"
+
+[[family]]
+stem = "lalsalu"
+omj = "LalSaluOMJ"
+class = "serif"
+
+[[family]]
+stem = "lekhoni"
+omj = "LekhoniOMJ"
+class = "serif"
+
+[[family]]
+stem = "meghna"
+omj = "MeghnaOMJ"
+class = "serif"
+
+[[family]]
+stem = "mogrha"
+omj = "MogrhaOMJ"
+class = "serif"
+
+[[family]]
+stem = "mohanonda"
+omj = "MohanondaOMJ"
+class = "sans"
+
+[[family]]
+stem = "monoo"
+omj = "MonooOMJ"
+class = "serif"
+
+[[family]]
+stem = "mugdha"
+omj = "MugdhaOMJ"
+class = "serif"
+
+[[family]]
+stem = "nayan"
+omj = "NayanOMJ"
+class = "serif"
+
+[[family]]
+stem = "nikosh"
+omj = "NikoshOMJ"
+class = "serif"
+
+[[family]]
+stem = "nite"
+omj = "NiteOMJ"
+class = "serif"
+
+[[family]]
+stem = "nobogonga"
+omj = "NobogongaOMJ"
+class = "sans"
+
+[[family]]
+stem = "okkhor"
+omj = "OkkhorOMJ"
+class = "serif"
+
+[[family]]
+stem = "padma"
+omj = "PadmaOMJ"
+class = "serif"
+
+[[family]]
+stem = "palash"
+omj = "PalashOMJ"
+class = "serif"
+
+[[family]]
+stem = "piabari"
+omj = "PiabariOMJ"
+class = "serif"
+
+[[family]]
+stem = "pobitro"
+omj = "PobitroOMJ"
+class = "serif"
+
+[[family]]
+stem = "prokash"
+omj = "ProkashOMJ"
+class = "serif"
+
+[[family]]
+stem = "prothoma"
+omj = "ProthomaOMJ"
+class = "serif"
+
+[[family]]
+stem = "puthi"
+omj = "PuthiOMJ"
+class = "serif"
+
+[[family]]
+stem = "rinkiya"
+omj = "RinkiyaOMJ"
+class = "serif"
+
+[[family]]
+stem = "robi"
+omj = "RobiOMJ"
+class = "serif"
+
+[[family]]
+stem = "rupali"
+omj = "RupaliOMJ"
+class = "serif"
+
+[[family]]
+stem = "ruposhi"
+omj = "RuposhiOMJ"
+class = "serif"
+
+[[family]]
+stem = "rupsha"
+omj = "RupshaOMJ"
+class = "serif"
+
+[[family]]
+stem = "saroj"
+omj = "SarojOMJ"
+class = "serif"
+
+[[family]]
+stem = "sharifa"
+omj = "SharifaOMJ"
+class = "serif"
+
+[[family]]
+stem = "shibakusum"
+omj = "ShibaKusumOMJ"
+class = "serif"
+
+[[family]]
+stem = "shibly"
+omj = "ShiblyOMJ"
+class = "serif"
+
+[[family]]
+stem = "shimanto"
+omj = "ShimantoOMJ"
+class = "serif"
+
+[[family]]
+stem = "shobuj"
+omj = "ShobujOMJ"
+class = "serif"
+
+[[family]]
+stem = "sraboni"
+omj = "SraboniOMJ"
+class = "serif"
+
+[[family]]
+stem = "style"
+omj = "StyleOMJ"
+class = "serif"
+
+[[family]]
+stem = "sulekha"
+omj = "SulekhaOMJ"
+class = "serif"
+
+[[family]]
+stem = "sumon"
+omj = "SumonOMJ"
+class = "serif"
+
+[[family]]
+stem = "surma"
+omj = "SurmaOMJ"
+class = "serif"
+
+[[family]]
+stem = "tarangini"
+omj = "TaranginiOMJ"
+class = "serif"
+
+[[family]]
+stem = "tonni"
+omj = "TonniOMJ"
+class = "serif"
+
+[[family]]
+stem = "topaz"
+omj = "TopazOMJ"
+class = "serif"
+
+[[family]]
+stem = "tuhin"
+omj = "TuhinOMJ"
+class = "serif"
+
+[[family]]
+stem = "tulip"
+omj = "TulipOMJ"
+class = "serif"
+
+[[family]]
+stem = "vasha"
+omj = "VashaOMJ"
+class = "serif"
+
+[[family]]
+stem = "vrinda"
+omj = "VrindaOMJ"
+class = "serif"
+
+# --- Families WITHOUT OMJ variant (35) — class only ---
+
+[[family]]
+stem = "ananda"
+class = "serif"
+
+[[family]]
+stem = "bijoy"
+class = "serif"
+
+[[family]]
+stem = "chandi"
+class = "serif"
+
+[[family]]
+stem = "city"
+class = "serif"
+
+[[family]]
+stem = "ekush"
+class = "serif"
+
+[[family]]
+stem = "ganges"
+class = "serif"
+
+[[family]]
+stem = "habib"
+class = "serif"
+
+[[family]]
+stem = "helidon"
+class = "serif"
+
+[[family]]
+stem = "jamuna"
+class = "serif"
+
+[[family]]
+stem = "jasim"
+class = "serif"
+
+[[family]]
+stem = "kanakavra"
+class = "serif"
+
+[[family]]
+stem = "kunika"
+class = "serif"
+
+[[family]]
+stem = "lohit"
+class = "serif"
+
+[[family]]
+stem = "maitra"
+class = "serif"
+
+[[family]]
+stem = "mala"
+class = "serif"
+
+[[family]]
+stem = "mayur"
+class = "serif"
+
+[[family]]
+stem = "meena"
+class = "serif"
+
+[[family]]
+stem = "mohona"
+class = "serif"
+
+[[family]]
+stem = "mukti"
+class = "serif"
+
+[[family]]
+stem = "naksha"
+class = "serif"
+
+[[family]]
+stem = "neel"
+class = "serif"
+
+[[family]]
+stem = "onnesha"
+class = "serif"
+
+[[family]]
+stem = "ovi"
+class = "serif"
+
+[[family]]
+stem = "pushpo"
+class = "serif"
+
+[[family]]
+stem = "rajdhani"
+class = "serif"
+
+[[family]]
+stem = "rumi"
+class = "serif"
+
+[[family]]
+stem = "sabrina"
+class = "serif"
+
+[[family]]
+stem = "sakha"
+class = "serif"
+
+[[family]]
+stem = "shurjo"
+class = "serif"
+
+[[family]]
+stem = "sitara"
+class = "serif"
+
+[[family]]
+stem = "soma"
+class = "serif"
+
+[[family]]
+stem = "tara"
+class = "serif"
+
+[[family]]
+stem = "titash"
+class = "serif"
+
+[[family]]
+stem = "trishna"
+class = "serif"
+
+[[family]]
+stem = "uttara"
+class = "serif"
