@@ -111,3 +111,52 @@ function applyConversionsSheets_(results) {
     cell.setFontFamily(r.newFont);
   }
 }
+
+/**
+ * Applies conversion results to a Google Slides presentation.
+ * ID format: "slides:S<slideIdx>:SH<shapeIdx>:C<charStart>-<charEnd>"
+ */
+function applyConversionsSlides_(results) {
+  var presentation = SlidesApp.getActivePresentation();
+  var slides = presentation.getSlides();
+
+  // Process in reverse character-offset order within each shape
+  var sorted = results.slice().sort(function(a, b) {
+    var aP = parseSlidesId_(a.id);
+    var bP = parseSlidesId_(b.id);
+    if (bP.slide !== aP.slide) return bP.slide - aP.slide;
+    if (bP.shape !== aP.shape) return bP.shape - aP.shape;
+    return bP.charStart - aP.charStart;
+  });
+
+  for (var i = 0; i < sorted.length; i++) {
+    var r = sorted[i];
+    var parts = parseSlidesId_(r.id);
+    var shape = slides[parts.slide].getShapes()[parts.shape];
+    var textRange = shape.getText();
+
+    // Get the specific range and replace
+    var range = textRange.getRange(parts.charStart, parts.charEnd + 1);
+    var style = range.getTextStyle();
+
+    range.setText(r.newText);
+
+    // Re-acquire the range after setText (offsets may shift)
+    var newRange = textRange.getRange(parts.charStart, parts.charStart + r.newText.length);
+    newRange.getTextStyle().setFontFamily(r.newFont);
+  }
+}
+
+/**
+ * Parses a Slides run ID into its components.
+ * "slides:S0:SH2:C10-25" → {slide: 0, shape: 2, charStart: 10, charEnd: 25}
+ */
+function parseSlidesId_(id) {
+  var match = id.match(/^slides:S(\d+):SH(\d+):C(\d+)-(\d+)$/);
+  return {
+    slide: parseInt(match[1], 10),
+    shape: parseInt(match[2], 10),
+    charStart: parseInt(match[3], 10),
+    charEnd: parseInt(match[4], 10)
+  };
+}
