@@ -89,6 +89,7 @@ dependencies = [
  "anyhow",
  "banglakit-core",
  "banglakit-docx",
+ "banglakit-pptx",
  "base64",
  "clap",
  "serde",
@@ -110,6 +111,17 @@ dependencies = [
 
 [[package]]
 name = "banglakit-docx"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "banglakit-core",
+ "quick-xml",
+ "thiserror 1.0.69",
+ "zip",
+]
+
+[[package]]
+name = "banglakit-pptx"
 version = "0.1.0"
 dependencies = [
  "anyhow",

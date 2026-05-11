@@ -97,6 +97,41 @@ fn plain_text_canonical_sample() {
 }
 
 #[test]
+fn docx_cascade_resolves_font_from_paragraph_style() {
+    // Fixture: the Bijoy run carries no font of its own; SutonnyMJ lives on
+    // the paragraph style "BijoyBody". This exercises v0.2 cascade
+    // resolution + the rPr/rFonts injection on output.
+    let fixture = workspace_root().join("tests/fixtures/styled.docx");
+    assert!(fixture.exists(), "missing fixture {}", fixture.display());
+
+    let out = tempfile("docx_cascade_out", ".docx");
+    let status = Command::new(binary_path())
+        .arg("-i")
+        .arg(&fixture)
+        .arg("-o")
+        .arg(&out)
+        .status()
+        .expect("spawn CLI");
+    assert_eq!(status.code(), Some(1), "expected changes (exit 1)");
+
+    let bytes = std::fs::read(&out).expect("read output");
+    let xml = unzip_document_xml(&bytes);
+    assert!(
+        xml.contains("আমি বাংলায়"),
+        "Bijoy run not converted: {xml}"
+    );
+    assert!(
+        xml.contains("Kalpurush"),
+        "font injection failed (no Kalpurush in output): {xml}"
+    );
+    assert!(
+        xml.contains("Source: Daily Star"),
+        "English run mutated: {xml}"
+    );
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
 fn english_is_untouched_in_safe_mode() {
     let input = "Gas price is $5 today";
     let out = std::process::Command::new(binary_path())

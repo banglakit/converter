@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/banglakit-core",
     "crates/banglakit-docx",
+    "crates/banglakit-pptx",
     "crates/banglakit-cli",
     "crates/banglakit-wasm",
 ]

@@ -12,9 +12,9 @@
 
 use anyhow::{anyhow, Context, Result};
 use banglakit_core::{
-    classify, transliterate_with_audit, Classification, Decision, Encoding, Mode, Stage,
+    classify, transliterate_with_audit, Classification, Decision, Encoding, Mode, RunAction,
+    RunRef, RunVisitor, Stage,
 };
-use banglakit_docx::{process_docx, RunAction, RunRef, RunVisitor};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use clap::{Parser, ValueEnum};
 use serde::Serialize;
@@ -114,16 +114,18 @@ fn run(cli: &Cli) -> Result<ExitCode> {
 
     let mut audit_sink = open_audit_sink(cli)?;
 
-    let is_docx = cli.input != "-"
-        && Path::new(&cli.input)
+    let extension = if cli.input != "-" {
+        Path::new(&cli.input)
             .extension()
-            .map(|e| e.to_ascii_lowercase() == "docx")
-            .unwrap_or(false);
-
-    let any_change = if is_docx {
-        process_docx_input(cli, encoding, threshold, &mut audit_sink)?
+            .map(|e| e.to_ascii_lowercase().to_string_lossy().into_owned())
     } else {
-        process_text_input(cli, encoding, mode, threshold, &mut audit_sink)?
+        None
+    };
+
+    let any_change = match extension.as_deref() {
+        Some("docx") => process_docx_input(cli, encoding, threshold, &mut audit_sink)?,
+        Some("pptx") => process_pptx_input(cli, encoding, threshold, &mut audit_sink)?,
+        _ => process_text_input(cli, encoding, mode, threshold, &mut audit_sink)?,
     };
 
     if let Some(sink) = audit_sink.as_mut() {
@@ -148,6 +150,7 @@ fn open_audit_sink(cli: &Cli) -> Result<Option<AuditSink>> {
 
 #[derive(Debug, Serialize)]
 struct AuditEntry<'a> {
+    slide_index: Option<usize>,
     paragraph_index: Option<usize>,
     run_index: Option<usize>,
     source_format: &'a str,
@@ -233,6 +236,7 @@ fn process_text_input(
     write_audit(
         audit_sink,
         &AuditEntry {
+            slide_index: None,
             paragraph_index: None,
             run_index: None,
             source_format: "plain_text",
@@ -294,7 +298,8 @@ fn process_docx_input(
     let in_path = Path::new(&cli.input);
     let out_path = Path::new(&cli.output);
 
-    let mut visitor = DocxVisitor {
+    let mut visitor = OoxmlVisitor {
+        format: "docx",
         encoding,
         mode: cli.mode.into(),
         threshold,
@@ -303,11 +308,43 @@ fn process_docx_input(
         any_change: false,
         audit_sink,
     };
-    process_docx(in_path, out_path, &mut visitor)?;
+    banglakit_docx::process_docx(in_path, out_path, &mut visitor)?;
     Ok(visitor.any_change)
 }
 
-struct DocxVisitor<'a> {
+fn process_pptx_input(
+    cli: &Cli,
+    encoding: Encoding,
+    threshold: f32,
+    audit_sink: &mut Option<AuditSink>,
+) -> Result<bool> {
+    if cli.dry_run {
+        return Err(anyhow!("--dry-run for PPTX is not implemented in v0.2.0"));
+    }
+    if cli.output == "-" {
+        return Err(anyhow!("PPTX output must be a file path, not stdout"));
+    }
+    let in_path = Path::new(&cli.input);
+    let out_path = Path::new(&cli.output);
+
+    let mut visitor = OoxmlVisitor {
+        format: "pptx",
+        encoding,
+        mode: cli.mode.into(),
+        threshold,
+        unicode_font: cli.unicode_font.clone(),
+        explain: cli.explain,
+        any_change: false,
+        audit_sink,
+    };
+    banglakit_pptx::process_pptx(in_path, out_path, &mut visitor)?;
+    Ok(visitor.any_change)
+}
+
+/// Shared visitor for OOXML formats (DOCX and PPTX). The format string is
+/// stamped into the audit log and the explain output.
+struct OoxmlVisitor<'a> {
+    format: &'static str,
     encoding: Encoding,
     mode: Mode,
     threshold: f32,
@@ -317,7 +354,7 @@ struct DocxVisitor<'a> {
     audit_sink: &'a mut Option<AuditSink>,
 }
 
-impl<'a> RunVisitor for DocxVisitor<'a> {
+impl<'a> RunVisitor for OoxmlVisitor<'a> {
     fn visit(&mut self, run: RunRef<'_>) -> RunAction {
         let c = classify(run.text, run.font_name, self.encoding, self.mode);
         if self.explain {
@@ -326,15 +363,20 @@ impl<'a> RunVisitor for DocxVisitor<'a> {
                 .iter()
                 .map(|s| format!("{}={:.3}", s.name, s.value))
                 .collect();
+            let slide_part = run
+                .slide_index
+                .map(|s| format!("s{s}/"))
+                .unwrap_or_default();
             eprintln!(
-                "[explain] docx p{}/r{} font={:?} stage={:?} decision={:?} p={:.3} signals=[{}]",
+                "[explain] {fmt} {slide_part}p{}/r{} font={:?} stage={:?} decision={:?} p={:.3} signals=[{}]",
                 run.paragraph_index,
                 run.run_index,
                 run.font_name,
                 c.stage,
                 c.decision,
                 c.confidence,
-                signals.join(", ")
+                signals.join(", "),
+                fmt = self.format,
             );
         }
 
@@ -354,9 +396,10 @@ impl<'a> RunVisitor for DocxVisitor<'a> {
         let _ = write_audit(
             self.audit_sink,
             &AuditEntry {
+                slide_index: run.slide_index,
                 paragraph_index: Some(run.paragraph_index),
                 run_index: Some(run.run_index),
-                source_format: "docx",
+                source_format: self.format,
                 font_name: run.font_name,
                 stage: stage_name(c.stage),
                 decision: decision_name(c.decision),
