@@ -8,3 +8,5 @@ Cargo.lock.bak
 # also reproduced locally with the same command — never committed).
 /web/pkg/
 /examples/wasm-demo/pkg/
+
+graphify-out
