@@ -131,6 +131,7 @@ fn transform_document_xml<V: RunVisitor>(
     let mut writer = Writer::new(Cursor::new(Vec::<u8>::new()));
 
     let mut run_buffer: Option<RunBuffer> = None;
+    let mut run_depth: usize = 0; // nesting depth of <w:r> inside a run buffer
     let mut ppr_buffer: Option<Vec<Event<'static>>> = None;
     let mut paragraph_index: usize = 0;
     let mut in_paragraph = false;
@@ -146,12 +147,21 @@ fn transform_document_xml<V: RunVisitor>(
             Ok(event) => {
                 let local = local_name_bytes_of(&event);
 
-                // Inside a run buffer, everything is captured until </w:r>.
+                // Inside a run buffer, everything is captured until the matching </w:r>.
+                // Track nesting depth to handle embedded <w:r> inside <mc:AlternateContent>.
                 if let Some(rb) = run_buffer.as_mut() {
-                    if matches!(event, Event::End(_)) && local == Some(b"r") {
-                        // close run, stash for end-of-paragraph merging
-                        rb.end_event = Some(event.into_owned());
-                        paragraph_runs.push(run_buffer.take().unwrap());
+                    if matches!(event, Event::Start(_)) && local == Some(b"r") {
+                        run_depth += 1;
+                        rb.push(event.into_owned());
+                    } else if matches!(event, Event::End(_)) && local == Some(b"r") {
+                        if run_depth == 0 {
+                            // Matching close for the outer <w:r>.
+                            rb.end_event = Some(event.into_owned());
+                            paragraph_runs.push(run_buffer.take().unwrap());
+                        } else {
+                            run_depth -= 1;
+                            rb.push(event.into_owned());
+                        }
                     } else {
                         rb.push(event.into_owned());
                     }
@@ -190,28 +200,22 @@ fn transform_document_xml<V: RunVisitor>(
                         //   before conversion (pre-base ‡†ˆ‰w → next, post-base ©Š → prev).
                         merge_orphaned_bijoy_runs(&mut paragraph_runs, stylesheet, &paragraph_ctx, theme);
 
-                        // Phase 2: convert every run through the visitor and
-                        //   collect results.
-                        let mut converted: Vec<ConvertedRunResult> = Vec::with_capacity(paragraph_runs.len());
-                        for (run_index, rb) in paragraph_runs.iter().enumerate() {
-                            converted.push(convert_run_buffer(
-                                rb,
-                                paragraph_index,
-                                run_index,
-                                &paragraph_ctx,
-                                stylesheet,
-                                theme,
-                                visitor,
-                            ));
-                        }
+                        // Phase 2: convert runs through the visitor.
+                        //   Adjacent same-font Bijoy runs are grouped and
+                        //   converted as one unit so normalize passes see
+                        //   the full word across run boundaries.
+                        let mut converted = convert_paragraph_runs(
+                            &paragraph_runs,
+                            paragraph_index,
+                            &paragraph_ctx,
+                            stylesheet,
+                            theme,
+                            visitor,
+                        );
 
-                        // Phase 3: post-conversion merge — absorb runs that
-                        //   begin with Unicode Bengali combining marks into
-                        //   their left neighbour.
-                        merge_unicode_combining_runs(&mut paragraph_runs, &mut converted);
-
-                        // (Phase 4 removed — the Phase 3 conjunct merge handles
-                        //  most cross-run pre-base issues without duplicating vowels.)
+                        // Phase 3 (post-conversion merge) is no longer needed —
+                        // Phase 2's grouped conversion handles all cross-run
+                        // issues by converting adjacent Bijoy runs as one unit.
 
                         // Emit.
                         for (rb, cr) in paragraph_runs.drain(..).zip(converted.drain(..)) {
@@ -229,6 +233,7 @@ fn transform_document_xml<V: RunVisitor>(
                     }
                     (Event::Start(_), Some(b"r")) if in_paragraph => {
                         run_buffer = Some(RunBuffer::new(event.into_owned()));
+                        run_depth = 0;
                     }
                     _ => {
                         write_event(&mut writer, &event)?;
@@ -546,6 +551,118 @@ struct ConvertedRunResult {
     new_font: Option<String>,
     /// Whether this run should be suppressed (its content was merged elsewhere).
     suppress: bool,
+}
+
+/// Convert all runs in a paragraph, grouping adjacent same-font Bijoy runs
+/// and converting them as a single unit so normalize passes see full words.
+fn convert_paragraph_runs<V: RunVisitor>(
+    runs: &[RunBuffer],
+    paragraph_index: usize,
+    paragraph: &ParagraphContext,
+    stylesheet: &Stylesheet,
+    theme: Option<&Theme>,
+    visitor: &mut V,
+) -> Vec<ConvertedRunResult> {
+    let mut converted: Vec<ConvertedRunResult> = (0..runs.len())
+        .map(|_| ConvertedRunResult {
+            new_text: None,
+            new_font: None,
+            suppress: false,
+        })
+        .collect();
+
+    // Pre-compute font for each run.
+    let fonts: Vec<Option<String>> = runs
+        .iter()
+        .map(|rb| {
+            let (run_font, _) = extract_font_and_text(&rb.events, theme);
+            stylesheet
+                .resolve_run_font(
+                    run_font.as_deref(),
+                    paragraph.run_default_font.as_deref(),
+                    paragraph.style_id.as_deref(),
+                )
+                .map(|s| s.to_string())
+        })
+        .collect();
+
+    let mut i = 0;
+    while i < runs.len() {
+        let font_i = fonts[i].as_deref();
+
+        if !is_bijoy_font(font_i) {
+            // Non-Bijoy run: convert individually.
+            converted[i] = convert_run_buffer(
+                &runs[i], paragraph_index, i, paragraph, stylesheet, theme, visitor,
+            );
+            i += 1;
+            continue;
+        }
+
+        // Find the extent of this Bijoy group (adjacent same-font runs).
+        let group_start = i;
+        let group_font = font_i;
+        let mut group_end = i + 1;
+        while group_end < runs.len()
+            && is_bijoy_font(fonts[group_end].as_deref())
+            && fonts[group_end].as_deref() == group_font
+        {
+            group_end += 1;
+        }
+
+        if group_end == group_start + 1 {
+            // Single Bijoy run: convert individually.
+            converted[i] = convert_run_buffer(
+                &runs[i], paragraph_index, i, paragraph, stylesheet, theme, visitor,
+            );
+            i += 1;
+            continue;
+        }
+
+        // Multiple adjacent Bijoy runs: concatenate text and convert as one.
+        let mut combined_text = String::new();
+        for j in group_start..group_end {
+            let (_, text) = extract_font_and_text(&runs[j].events, theme);
+            combined_text.push_str(&text);
+        }
+
+        // Visit the combined text as a single run.
+        let action = {
+            let run = RunRef {
+                paragraph_index,
+                run_index: group_start,
+                slide_index: None,
+                font_name: group_font,
+                text: &combined_text,
+            };
+            visitor.visit(run)
+        };
+
+        match action {
+            RunAction::Keep => {
+                // Classifier said don't convert — leave all runs as-is.
+                i = group_end;
+            }
+            RunAction::Replace { new_text, new_font } => {
+                // Put the full converted text in the first run, suppress the rest.
+                converted[group_start] = ConvertedRunResult {
+                    new_text: Some(new_text),
+                    new_font: new_font.clone(),
+                    suppress: false,
+                };
+                for j in (group_start + 1)..group_end {
+                    converted[j] = ConvertedRunResult {
+                        new_text: None,
+                        new_font: None,
+                        suppress: true,
+                    };
+                }
+                i = group_end;
+            }
+        }
+    }
+
+    converted
 }
 
 /// Convert a run through the visitor without writing to the output.
