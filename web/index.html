@@ -7,82 +7,110 @@
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
-
       gtag('config', 'G-MJ3XKLH4SL');
     </script>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>banglakit-converter — Bijoy → Unicode Bengali</title>
+    <title>banglakit/converter — Bijoy to Unicode Bengali</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Young+Serif&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <header>
-      <h1>banglakit-converter</h1>
-      <p class="tagline">
-        Lossless Bijoy → Unicode Bengali. All conversion runs in your browser —
-        files never leave this page.
-      </p>
-      <span class="pill" id="version">loading WASM…</span>
-    </header>
+    <div class="page">
+      <header class="hero">
+        <div class="hero-inner">
+          <span class="pill" id="version">loading WASM...</span>
+          <h1>banglakit<span class="title-sep">/</span>converter</h1>
+          <p class="tagline">Transform your Bijoy documents to Unicode Bengali — perfectly, instantly, privately.</p>
+          <div class="trust-badge">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 1L3 3.5V7c0 3.5 2.1 6.2 5 7 2.9-.8 5-3.5 5-7V3.5L8 1z" fill="currentColor" opacity="0.15"/>
+              <path d="M8 1L3 3.5V7c0 3.5 2.1 6.2 5 7 2.9-.8 5-3.5 5-7V3.5L8 1z" stroke="currentColor" stroke-width="1.2" fill="none"/>
+              <path d="M5.5 8L7 9.5L10.5 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            100% private — files never leave your browser
+          </div>
+        </div>
+      </header>
 
-    <section class="controls">
-      <label>
-        mode:
-        <select id="mode">
-          <option value="safe" selected>safe (≥ 0.95)</option>
-          <option value="aggressive">aggressive (≥ 0.85)</option>
-        </select>
-      </label>
-      <label>
-        target font:
-        <select id="unicodeFont">
-          <option>Kalpurush</option>
-          <option>Nikosh</option>
-          <option>SolaimanLipi</option>
-          <option>Noto Sans Bengali</option>
-        </select>
-      </label>
-      <label>
-        <input type="checkbox" id="autoMatchFonts" />
-        auto-match fonts
-      </label>
-    </section>
+      <main>
+        <section class="controls-bar">
+          <label>
+            <span class="label-text">mode</span>
+            <select id="mode">
+              <option value="safe" selected>safe</option>
+              <option value="aggressive">aggressive</option>
+            </select>
+          </label>
+          <label>
+            <span class="label-text">target font</span>
+            <select id="unicodeFont">
+              <option>Kalpurush</option>
+              <option>Nikosh</option>
+              <option>SolaimanLipi</option>
+              <option>Noto Sans Bengali</option>
+            </select>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="autoMatchFonts" />
+            <span>auto-match fonts</span>
+          </label>
+        </section>
 
-    <section>
-      <h2>Convert a file</h2>
-      <div id="dropzone" class="dropzone" tabindex="0">
-        <p><strong>Drop a .docx, .pptx, or .txt file here</strong></p>
-        <p class="hint">or</p>
-        <label class="filebtn">
-          <input type="file" id="filepicker" accept=".docx,.pptx,.txt,.md,text/plain" />
-          Choose a file
-        </label>
-      </div>
-      <div id="filestatus" class="status" hidden></div>
-    </section>
+        <section class="section" style="--delay: 0">
+          <h2>Convert a file</h2>
+          <div id="dropzone" class="dropzone" tabindex="0">
+            <div class="dropzone-icon">
+              <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                <rect x="8" y="4" width="24" height="32" rx="2" stroke="currentColor" stroke-width="1.5" opacity="0.4"/>
+                <rect x="4" y="8" width="24" height="32" rx="2" fill="var(--panel)" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M10 20h12M10 25h8M10 30h10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.4"/>
+                <circle cx="28" cy="32" r="8" fill="var(--accent)" stroke="var(--panel)" stroke-width="2"/>
+                <path d="M28 29v6M25 32h6" stroke="var(--panel)" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <p class="dropzone-title">Drop a file to convert</p>
+            <p class="dropzone-formats">.docx &middot; .pptx &middot; .txt</p>
+            <label class="filebtn">
+              <input type="file" id="filepicker" accept=".docx,.pptx,.txt,.md,text/plain" />
+              Choose file
+            </label>
+          </div>
+          <div id="filestatus" class="status" hidden></div>
+        </section>
 
-    <section>
-      <h2>…or paste text</h2>
-      <div class="row">
-        <div>
-          <label for="textin">input (Bijoy)</label>
-          <textarea id="textin" spellcheck="false">Avwg evsjvq Mvb MvB|
+        <div class="ornament" aria-hidden="true"><span></span></div>
+
+        <section class="section" style="--delay: 1">
+          <h2>Try it live</h2>
+          <div class="conversion-row">
+            <div class="conversion-panel">
+              <label for="textin">Bijoy input</label>
+              <textarea id="textin" spellcheck="false">Avwg evsjvq Mvb MvB|
 Gas price is $5 today.
 ÒAviv eyS‡Z cv‡imÓ</textarea>
-        </div>
-        <div>
-          <label for="textout">output</label>
-          <div id="textout" class="out"></div>
-        </div>
-      </div>
-    </section>
+            </div>
+            <div class="conversion-arrow" aria-hidden="true">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="conversion-panel">
+              <label for="textout">Unicode output</label>
+              <div id="textout" class="out"></div>
+            </div>
+          </div>
+        </section>
+      </main>
 
-    <footer>
-      <p>
+      <footer>
         <a href="https://github.com/banglakit/converter">banglakit/converter</a>
-        — built with Rust + WebAssembly.
-      </p>
-    </footer>
+        <span class="footer-sep">&middot;</span>
+        Built with Rust + WebAssembly
+      </footer>
+    </div>
 
     <script type="module" src="./app.js"></script>
   </body>

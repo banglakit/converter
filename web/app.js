@@ -25,7 +25,9 @@ function options() {
 function setStatus(kind, html) {
   const el = $("filestatus");
   el.hidden = false;
-  el.className = `status ${kind}`;
+  el.classList.remove("animate-in");
+  void el.offsetWidth;
+  el.className = `status ${kind} animate-in`;
   el.innerHTML = html;
 }
 
