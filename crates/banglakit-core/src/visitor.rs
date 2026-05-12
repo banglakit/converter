@@ -74,6 +74,10 @@ pub struct DefaultRunVisitor<'a> {
     pub opts: ConvertOptions<'a>,
     pub any_change: bool,
     pub runs_converted: usize,
+    /// When `auto_match_fonts` is on, remembers the last successfully matched
+    /// font so runs with no font hint (or unrecognized fonts) can reuse it
+    /// instead of falling back to `opts.unicode_font`.
+    last_matched_font: Option<String>,
 }
 
 impl<'a> DefaultRunVisitor<'a> {
@@ -82,6 +86,7 @@ impl<'a> DefaultRunVisitor<'a> {
             opts,
             any_change: false,
             runs_converted: 0,
+            last_matched_font: None,
         }
     }
 }
@@ -92,6 +97,24 @@ impl<'a> RunVisitor for DefaultRunVisitor<'a> {
         if r.changed {
             self.any_change = true;
             self.runs_converted += 1;
+            // Track last matched font for fallback on subsequent unresolvable runs.
+            if self.opts.auto_match_fonts {
+                if let Some(font) = r.font {
+                    if font != self.opts.unicode_font {
+                        self.last_matched_font = Some(font.to_string());
+                    }
+                }
+                // If this run fell back to unicode_font but we have a previous
+                // match, override with the last matched font.
+                if r.font == Some(self.opts.unicode_font) {
+                    if let Some(ref last) = self.last_matched_font {
+                        return RunAction::Replace {
+                            new_text: r.text,
+                            new_font: Some(last.clone()),
+                        };
+                    }
+                }
+            }
         }
         RunAction::from(r)
     }

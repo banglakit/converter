@@ -301,6 +301,7 @@ fn process_docx_input(
         explain: cli.explain,
         any_change: false,
         audit_sink,
+        last_matched_font: None,
     };
     banglakit_docx::process_docx(in_path, out_path, &mut visitor)?;
     Ok(visitor.any_change)
@@ -331,6 +332,7 @@ fn process_pptx_input(
         explain: cli.explain,
         any_change: false,
         audit_sink,
+        last_matched_font: None,
     };
     banglakit_pptx::process_pptx(in_path, out_path, &mut visitor)?;
     Ok(visitor.any_change)
@@ -348,6 +350,7 @@ struct OoxmlVisitor<'a> {
     explain: bool,
     any_change: bool,
     audit_sink: &'a mut Option<AuditSink>,
+    last_matched_font: Option<String>,
 }
 
 impl<'a> RunVisitor for OoxmlVisitor<'a> {
@@ -402,6 +405,21 @@ impl<'a> RunVisitor for OoxmlVisitor<'a> {
 
         if result.changed {
             self.any_change = true;
+            if self.auto_match_fonts {
+                if let Some(font) = result.font {
+                    if font != self.unicode_font {
+                        self.last_matched_font = Some(font.to_string());
+                    }
+                }
+                if result.font == Some(self.unicode_font.as_str()) {
+                    if let Some(ref last) = self.last_matched_font {
+                        return RunAction::Replace {
+                            new_text: result.text,
+                            new_font: Some(last.clone()),
+                        };
+                    }
+                }
+            }
         }
         RunAction::from(result)
     }
