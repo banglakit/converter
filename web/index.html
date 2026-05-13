@@ -36,31 +36,55 @@
       </header>
 
       <main>
-        <section class="controls-bar">
-          <label>
-            <span class="label-text">mode</span>
-            <select id="mode">
-              <option value="safe" selected>safe</option>
-              <option value="aggressive">aggressive</option>
-            </select>
-          </label>
-          <label>
-            <span class="label-text">target font</span>
-            <select id="unicodeFont">
-              <option>Kalpurush</option>
-              <option>Nikosh</option>
-              <option>SolaimanLipi</option>
-              <option>Noto Sans Bengali</option>
-            </select>
-          </label>
-          <label class="checkbox-label">
-            <input type="checkbox" id="autoMatchFonts" />
-            <span>auto-match fonts</span>
-          </label>
+        <section class="font-mapper" aria-label="Font mapping settings">
+          <div class="mapper-header">
+            <div class="mapper-title-row">
+              <h2>Font Mapping</h2>
+              <label class="mode-select">
+                <span class="label-text">mode</span>
+                <select id="mode">
+                  <option value="safe" selected>safe</option>
+                  <option value="aggressive">aggressive</option>
+                </select>
+              </label>
+            </div>
+            <div class="mapper-toggle" role="radiogroup" aria-label="Mapping mode">
+              <button class="toggle-btn active" data-map="auto" role="radio" aria-checked="true">Auto Map</button>
+              <button class="toggle-btn" data-map="manual" role="radio" aria-checked="false">Manual</button>
+              <div class="toggle-indicator"></div>
+            </div>
+          </div>
+
+          <div class="mapper-body" id="mapperBody">
+            <div class="map-mode map-auto active" id="mapAuto">
+              <p class="map-description">Each Bijoy font maps to its Unicode counterpart</p>
+              <div class="map-list" id="autoMapList"></div>
+            </div>
+            <div class="map-mode map-manual" id="mapManual">
+              <div class="manual-pick">
+                <div class="manual-source">
+                  <span class="map-label">All Bijoy fonts</span>
+                </div>
+                <span class="map-arrow-icon">
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 10h12M12 6l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+                <div class="manual-target">
+                  <select id="unicodeFont">
+                    <option>Kalpurush</option>
+                    <option>Nikosh</option>
+                    <option>SolaimanLipi</option>
+                    <option>Noto Sans Bengali</option>
+                  </select>
+                </div>
+              </div>
+              <div class="map-list" id="manualMapList"></div>
+            </div>
+          </div>
+          <input type="hidden" id="autoMatchFonts" value="true" />
         </section>
 
         <section class="section" style="--delay: 0">
-          <h2>Convert a file</h2>
+          <h2>Convert files</h2>
           <div id="dropzone" class="dropzone" tabindex="0">
             <div class="dropzone-icon">
               <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
@@ -71,12 +95,18 @@
                 <path d="M28 29v6M25 32h6" stroke="var(--panel)" stroke-width="1.5" stroke-linecap="round"/>
               </svg>
             </div>
-            <p class="dropzone-title">Drop a file to convert</p>
+            <p class="dropzone-title">Drop files or a folder to convert</p>
             <p class="dropzone-formats">.docx &middot; .pptx &middot; .txt</p>
-            <label class="filebtn">
-              <input type="file" id="filepicker" accept=".docx,.pptx,.txt,.md,text/plain" />
-              Choose file
-            </label>
+            <div class="dropzone-buttons">
+              <label class="filebtn">
+                <input type="file" id="filepicker" accept=".docx,.pptx,.txt,.md,text/plain" multiple />
+                Choose files
+              </label>
+              <label class="filebtn filebtn-secondary">
+                <input type="file" id="folderpicker" webkitdirectory />
+                Choose folder
+              </label>
+            </div>
           </div>
           <div id="filestatus" class="status" hidden></div>
         </section>
@@ -112,6 +142,7 @@ Gas price is $5 today.
       </footer>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script type="module" src="./app.js"></script>
   </body>
 </html>
